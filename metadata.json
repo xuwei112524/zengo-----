@@ -1,0 +1,5 @@
+{
+  "name": "ZenGo (弈悟)",
+  "description": "A minimalist, high-end Go (Weiqi) teaching application powered by Gemini. Features AI opponents, real-time territory visualization, and strategic guidance.",
+  "requestFramePermissions": []
+}
