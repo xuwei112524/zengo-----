@@ -17,12 +17,17 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Sort history by moveNumber to ensure order is correct (by move, not by generation time)
+  const sortedHistory = React.useMemo(() => {
+    return [...history].sort((a, b) => a.moveNumber - b.moveNumber);
+  }, [history]);
+
   // Determine which analysis to display
   // 1. If user selected a specific historical move, show that.
   // 2. Otherwise, show the latest available in history.
   const activeItem = selectedMoveNum 
-    ? history.find(h => h.moveNumber === selectedMoveNum) 
-    : history.length > 0 ? history[history.length - 1] : null;
+    ? sortedHistory.find(h => h.moveNumber === selectedMoveNum) 
+    : sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1] : null;
 
   // Scroll to top when active item changes for better reading experience
   useEffect(() => {
@@ -40,20 +45,20 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
 
   // Navigation Logic
   const currentIndex = activeItem 
-    ? history.findIndex(h => h.moveNumber === activeItem.moveNumber)
+    ? sortedHistory.findIndex(h => h.moveNumber === activeItem.moveNumber)
     : -1;
   const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex !== -1 && currentIndex < history.length - 1;
+  const hasNext = currentIndex !== -1 && currentIndex < sortedHistory.length - 1;
 
   const handlePrev = () => {
     if (hasPrev) {
-      setSelectedMoveNum(history[currentIndex - 1].moveNumber);
+      setSelectedMoveNum(sortedHistory[currentIndex - 1].moveNumber);
     }
   };
 
   const handleNext = () => {
     if (hasNext) {
-      setSelectedMoveNum(history[currentIndex + 1].moveNumber);
+      setSelectedMoveNum(sortedHistory[currentIndex + 1].moveNumber);
     }
   };
 
@@ -267,13 +272,13 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
          {/* List */}
          {isHistoryOpen && (
            <div className="flex-1 overflow-y-auto bg-stone-50/50 p-2 space-y-1 custom-scrollbar">
-             {[...history].reverse().map((item) => (
+             {[...sortedHistory].reverse().map((item) => (
                <div 
                  key={item.moveNumber}
                  onClick={() => setSelectedMoveNum(item.moveNumber)}
                  className={`
                     flex items-center justify-between p-3 rounded-md cursor-pointer border transition-all
-                    ${selectedMoveNum === item.moveNumber || (!selectedMoveNum && item === history[history.length-1]) 
+                    ${selectedMoveNum === item.moveNumber || (!selectedMoveNum && item === sortedHistory[sortedHistory.length-1]) 
                       ? 'bg-white border-accent-gold shadow-sm' 
                       : 'bg-transparent border-transparent hover:bg-white hover:border-stone-200'}
                  `}
