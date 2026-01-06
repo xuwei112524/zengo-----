@@ -1,13 +1,17 @@
 @echo off
 cd /d "%~dp0"
 
+:: Minimize this window immediately
+if not "%1" == "min" start /min cmd /c "%0 min"
+if not "%1" == "min" exit
+
 echo [INFO] Starting Zengo...
 
 :: 1. Check NPM
 call npm -v >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] npm command not found. Please install Node.js.
-    pause
+    timeout /t 5 >nul
     exit /b
 )
 
@@ -17,17 +21,17 @@ if not exist "node_modules" (
     call npm install
     if %errorlevel% neq 0 (
         echo [ERROR] npm install failed.
-        pause
+        timeout /t 5 >nul
         exit /b
     )
 )
 
-:: 3. Start Server (in a minimized new window)
+:: 3. Start Server (in a minimized window)
 echo [INFO] Starting Vite Server...
 start "Zengo Server" /min cmd /c "npm run dev"
 
 :: 4. Wait for server to initialize
-echo [INFO] Waiting for server to start (5 seconds)...
+echo [INFO] Waiting for server to start...
 timeout /t 5 /nobreak >nul
 
 :: 5. Open Application Window
@@ -47,6 +51,5 @@ start http://localhost:3000
 
 :success
 echo [INFO] Launch successful!
-echo [NOTE] Please keep the minimized "Zengo Server" window running.
-echo.
-pause
+timeout /t 2 >nul
+exit
