@@ -125,11 +125,62 @@ const App: React.FC = () => {
       setHistory(newHistory);
       setPrevBoard(newHistory.length > 0 ? newHistory[newHistory.length - 1].board : undefined);
       setViewingMoveNum(null); // Reset view on undo
-      
+
       // Sync Analysis History: Remove the last N entries
       const currentMoveCount = targetState.moveHistory.length;
       setAnalysisHistory(prev => prev.filter(item => item.moveNumber <= currentMoveCount));
     }
+  };
+
+  // 手动触发某步棋的分析
+  const handleAnalyzeMove = (moveNum: number) => {
+    // 找到对应的历史状态和坐标
+    if (moveNum <= 0 || moveNum > history.length) return;
+
+    // history[moveNum-1] 存储的是第 moveNum 手落子前的状态
+    // 需要获取该步的状态来分析
+    const stateToAnalyze = history[moveNum - 1];
+    const moveItem = analysisHistory.find(item => item.moveNumber === moveNum);
+    if (!stateToAnalyze || !moveItem) return;
+
+    // 设置为 loading
+    setAnalysisHistory(prev => prev.map(item => {
+      if (item.moveNumber === moveNum) {
+        return { ...item, isLoading: true };
+      }
+      return item;
+    }));
+
+    // 调用分析 API
+    analyzeMove(stateToAnalyze, moveItem.coordinate, aiConfig).then(({ analysis, usage }) => {
+      setAnalysisHistory(prev => prev.map(item => {
+        if (item.moveNumber === moveNum) {
+          return { ...item, analysis, isLoading: false };
+        }
+        return item;
+      }));
+      setTotalTokens(prev => prev + usage);
+    }).catch(err => {
+      setAnalysisHistory(prev => prev.map(item => {
+        if (item.moveNumber === moveNum) {
+          return {
+            ...item,
+            isLoading: false,
+            analysis: {
+              evaluation: '普通',
+              score: 75,
+              title: '分析失败',
+              detailedAnalysis: '网络错误，请重试',
+              strategicContext: '...',
+              josekiOrProverbs: [],
+              territoryChange: 0,
+              variations: []
+            }
+          };
+        }
+        return item;
+      }));
+    });
   };
 
   const makeMove = async (x: number, y: number) => {
@@ -166,7 +217,7 @@ const App: React.FC = () => {
 
     // 2. Trigger Analysis (Parallel) - WITH PLACEHOLDER
     setAnalysisHistory(prev => [
-      ...prev, 
+      ...prev,
       {
         moveNumber: currentMoveNum,
         player: currentPlayerColor,
@@ -176,27 +227,30 @@ const App: React.FC = () => {
       }
     ]);
 
-    analyzeMove(playerMovedState, { x, y }, aiConfig).then(({ analysis, usage }) => {
-      // Update the placeholder with real data
-      setAnalysisHistory(prev => prev.map(item => {
-        if (item.moveNumber === currentMoveNum) {
-          return { ...item, analysis, isLoading: false };
-        }
-        return item;
-      }));
-      setTotalTokens(prev => prev + usage);
-    }).catch(err => {
-      setAnalysisHistory(prev => prev.map(item => {
-        if (item.moveNumber === currentMoveNum) {
-          return { 
-            ...item, 
-            isLoading: false,
-            analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "网络超时，请检查连接。" }
-          };
-        }
-        return item;
-      }));
-    });
+    // 延迟分析以避免限流（特别是 GLM-4.5-Flash）
+    const analyzeDelay = aiConfig.provider === 'zhipu' ? 2000 : 0;
+    setTimeout(() => {
+      analyzeMove(playerMovedState, { x, y }, aiConfig).then(({ analysis, usage }) => {
+        setAnalysisHistory(prev => prev.map(item => {
+          if (item.moveNumber === currentMoveNum) {
+            return { ...item, analysis, isLoading: false };
+          }
+          return item;
+        }));
+        setTotalTokens(prev => prev + usage);
+      }).catch(() => {
+        setAnalysisHistory(prev => prev.map(item => {
+          if (item.moveNumber === currentMoveNum) {
+            return {
+              ...item,
+              isLoading: false,
+              analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "请求过多，请重试" }
+            };
+          }
+          return item;
+        }));
+      });
+    }, analyzeDelay);
 
     // 3. AI Turn
     setIsAiThinking(true);
@@ -229,9 +283,9 @@ const App: React.FC = () => {
                setViewingMoveNum(null); // Ensure live view
                validMoveFound = true;
 
-               // Analyze AI Move as well - WITH PLACEHOLDER
+               // AI 落子后触发分析
                setAnalysisHistory(prev => [
-                ...prev, 
+                ...prev,
                 {
                   moveNumber: aiMoveNum,
                   player: PlayerColor.White,
@@ -239,28 +293,32 @@ const App: React.FC = () => {
                   analysis: LOADING_ANALYSIS,
                   isLoading: true
                 }
-              ]);
+               ]);
 
-               analyzeMove(aiResult.newState, aiCoords, aiConfig).then(({ analysis: aiAnalysisResult, usage: analysisUsage }) => {
-                  setAnalysisHistory(prev => prev.map(item => {
-                    if (item.moveNumber === aiMoveNum) {
-                      return { ...item, analysis: aiAnalysisResult, isLoading: false };
-                    }
-                    return item;
-                  }));
-                  setTotalTokens(prev => prev + analysisUsage);
-               }).catch(err => {
-                  setAnalysisHistory(prev => prev.map(item => {
-                    if (item.moveNumber === aiMoveNum) {
-                      return { 
-                        ...item, 
-                        isLoading: false,
-                        analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "网络超时，请检查连接。" }
-                      };
-                    }
-                    return item;
-                  }));
-               });
+               // 延迟分析以避免限流
+               const aiAnalyzeDelay = aiConfig.provider === 'zhipu' ? 2000 : 0;
+               setTimeout(() => {
+                 analyzeMove(aiResult.newState, aiCoords, aiConfig).then(({ analysis: aiAnalysisResult, usage: analysisUsage }) => {
+                    setAnalysisHistory(prev => prev.map(item => {
+                      if (item.moveNumber === aiMoveNum) {
+                        return { ...item, analysis: aiAnalysisResult, isLoading: false };
+                      }
+                      return item;
+                    }));
+                    setTotalTokens(prev => prev + analysisUsage);
+                 }).catch(() => {
+                    setAnalysisHistory(prev => prev.map(item => {
+                      if (item.moveNumber === aiMoveNum) {
+                        return {
+                          ...item,
+                          isLoading: false,
+                          analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "请求过多，请重试" }
+                        };
+                      }
+                      return item;
+                    }));
+                 });
+               }, aiAnalyzeDelay);
 
             } else {
                console.warn(`AI attempted invalid move at ${aiCoords.x},${aiCoords.y}: ${aiResult.error}. Retrying...`);
@@ -419,12 +477,13 @@ const App: React.FC = () => {
       </div>
 
       {/* Right Column: Analysis Sidebar */}
-      <AnalysisPanel 
+      <AnalysisPanel
         history={analysisHistory}
-        isLoading={isAnalyzing} 
+        isLoading={isAnalyzing}
         currentMoveNumber={displayGameState.moveHistory.length}
         selectedMoveNumber={viewingMoveNum}
         onMoveSelect={(num) => setViewingMoveNum(num)}
+        onAnalyze={handleAnalyzeMove}
       />
 
     </div>

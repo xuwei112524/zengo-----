@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { MoveAnalysis, PlayerColor, AnalysisHistoryItem } from '../types';
-import { 
-  Brain, TrendingUp, TrendingDown, BookOpen, Compass, Target, 
-  History, ChevronUp, ChevronDown, CircleDot, ChevronLeft, ChevronRight 
+import {
+  Brain, TrendingUp, TrendingDown, BookOpen, Compass, Target,
+  History, ChevronUp, ChevronDown, CircleDot, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 interface AnalysisPanelProps {
@@ -12,14 +12,16 @@ interface AnalysisPanelProps {
   currentMoveNumber: number;
   selectedMoveNumber: number | null; // Controlled prop
   onMoveSelect: (moveNum: number | null) => void; // Callback
+  onAnalyze?: (moveNum: number) => void; // Callback to trigger analysis
 }
 
-const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ 
-  history, 
-  isLoading, 
+const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
+  history,
+  isLoading,
   currentMoveNumber,
   selectedMoveNumber,
-  onMoveSelect
+  onMoveSelect,
+  onAnalyze
 }) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -178,6 +180,23 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                  <p className="text-xs text-stone-400">分析第 {activeItem.moveNumber} 手的变化</p>
               </div>
            </div>
+        ) : analysis && activeItem && analysis.title === '分析失败' ? (
+           // Analysis failed - show retry button
+           <div className="flex flex-col items-center justify-center h-full pb-20 space-y-6 animate-in fade-in duration-500">
+              <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center">
+                <Brain className="w-8 h-8 text-red-300" />
+              </div>
+              <div className="text-center space-y-3 px-8">
+                 <p className="text-sm font-serif text-stone-600 font-medium tracking-wide">{analysis.detailedAnalysis}</p>
+                 <button
+                   onClick={() => onAnalyze && onAnalyze(activeItem.moveNumber)}
+                   disabled={isLoading}
+                   className="px-6 py-2 bg-stone-800 text-white text-xs font-bold rounded-full shadow-lg hover:bg-black transition-all active:scale-95 disabled:opacity-50"
+                 >
+                   重试分析
+                 </button>
+              </div>
+           </div>
         ) : (analysis && activeItem && (
           <div className="animate-fade-in pb-10">
             
@@ -317,15 +336,19 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
          {/* List */}
          {isHistoryOpen && (
            <div className="flex-1 overflow-y-auto bg-stone-50/50 p-2 space-y-1 custom-scrollbar">
-             {[...sortedHistory].reverse().map((item) => (
-               <div 
+             {[...sortedHistory].reverse().map((item) => {
+               const isFailed = item.analysis.title === '分析失败';
+               return (
+               <div
                  key={item.moveNumber}
                  onClick={() => onMoveSelect(item.moveNumber)}
                  className={`
                     flex items-center justify-between p-3 rounded-md cursor-pointer border transition-all
-                    ${selectedMoveNumber === item.moveNumber || (!selectedMoveNumber && item === sortedHistory[sortedHistory.length-1]) 
-                      ? 'bg-white border-accent-gold shadow-sm' 
-                      : 'bg-transparent border-transparent hover:bg-white hover:border-stone-200'}
+                    ${selectedMoveNumber === item.moveNumber || (!selectedMoveNumber && item === sortedHistory[sortedHistory.length-1])
+                      ? 'bg-white border-accent-gold shadow-sm'
+                      : isFailed
+                        ? 'bg-red-50/50 border-red-200 hover:bg-red-100'
+                        : 'bg-transparent border-transparent hover:bg-white hover:border-stone-200'}
                  `}
                >
                   <div className="flex items-center gap-3">
@@ -340,18 +363,20 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                      <div className="flex flex-col">
                         <span className="text-xs font-bold text-stone-700">{formatCoord(item.coordinate)}</span>
                         <span className="text-[10px] text-stone-400 font-serif truncate w-24">
-                          {item.isLoading ? "分析中..." : item.analysis.title}
+                          {item.isLoading ? "分析中..." : isFailed ? "分析失败" : item.analysis.title}
                         </span>
                      </div>
                   </div>
-                  
+
                   <div className="text-right">
                      {item.isLoading ? (
                        <div className="w-4 h-4 rounded-full border border-stone-300 border-t-accent-gold animate-spin" />
+                     ) : isFailed ? (
+                       <Brain size={12} className="text-red-400" />
                      ) : (
                        <span className={`
                          text-xs font-bold px-1.5 py-0.5 rounded
-                         ${item.analysis.evaluation.includes('好') || item.analysis.evaluation.includes('神') ? 'text-emerald-700 bg-emerald-50' : 
+                         ${item.analysis.evaluation.includes('好') || item.analysis.evaluation.includes('神') ? 'text-emerald-700 bg-emerald-50' :
                            item.analysis.evaluation.includes('败') || item.analysis.evaluation.includes('恶') ? 'text-red-700 bg-red-50' : 'text-stone-600 bg-stone-100'}
                        `}>
                          {item.analysis.evaluation}
@@ -359,7 +384,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                      )}
                   </div>
                </div>
-             ))}
+             )})}
              {history.length === 0 && (
                <div className="text-center py-8 text-stone-400 text-xs font-serif italic">暂无落子记录</div>
              )}
