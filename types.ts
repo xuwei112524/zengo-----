@@ -32,6 +32,7 @@ export interface AnalysisHistoryItem {
   player: PlayerColor;
   coordinate: Coordinate;
   analysis: MoveAnalysis;
+  isLoading?: boolean;
 }
 
 export interface GameState {

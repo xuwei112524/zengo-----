@@ -10,40 +10,72 @@ interface AnalysisPanelProps {
   history: AnalysisHistoryItem[];
   isLoading: boolean;
   currentMoveNumber: number;
+  selectedMoveNumber: number | null; // Controlled prop
+  onMoveSelect: (moveNum: number | null) => void; // Callback
 }
 
-const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, currentMoveNumber }) => {
-  const [selectedMoveNum, setSelectedMoveNum] = useState<number | null>(null);
+const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ 
+  history, 
+  isLoading, 
+  currentMoveNumber,
+  selectedMoveNumber,
+  onMoveSelect
+}) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Sort history by moveNumber to ensure order is correct (by move, not by generation time)
+  // Sort history by moveNumber to ensure order is correct
   const sortedHistory = React.useMemo(() => {
     return [...history].sort((a, b) => a.moveNumber - b.moveNumber);
   }, [history]);
 
   // Determine which analysis to display
-  // 1. If user selected a specific historical move, show that.
-  // 2. Otherwise, show the latest available in history.
-  const activeItem = selectedMoveNum 
-    ? sortedHistory.find(h => h.moveNumber === selectedMoveNum) 
-    : sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1] : null;
+  const selectedItem = selectedMoveNumber 
+    ? sortedHistory.find(h => h.moveNumber === selectedMoveNumber) 
+    : null;
+    
+  // If nothing selected (or not found), show latest
+  const activeItem = selectedItem || (sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1] : null);
 
-  // Scroll to top when active item changes for better reading experience
+  // Auto-scroll to top when content changes
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [activeItem?.moveNumber]);
 
-  // Reset selection if history is cleared (Restart)
+  // Keyboard Navigation
   useEffect(() => {
-    if (history.length === 0) setSelectedMoveNum(null);
-  }, [history.length]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (history.length === 0) return;
+      
+      const currentNum = activeItem ? activeItem.moveNumber : -1;
+      const idx = sortedHistory.findIndex(h => h.moveNumber === currentNum);
+      
+      if (idx === -1) return;
+
+      if (e.key === 'ArrowLeft') {
+        if (idx > 0) {
+          onMoveSelect(sortedHistory[idx - 1].moveNumber);
+        }
+      } else if (e.key === 'ArrowRight') {
+        if (idx < sortedHistory.length - 1) {
+          onMoveSelect(sortedHistory[idx + 1].moveNumber);
+        } else {
+           // If at the end, maybe deselect to show "current" state logic if needed, 
+           // but usually sticking to last item is fine.
+           onMoveSelect(sortedHistory[sortedHistory.length - 1].moveNumber);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [history, activeItem, sortedHistory, onMoveSelect]);
 
   const analysis = activeItem?.analysis;
 
-  // Navigation Logic
+  // Navigation Logic for Buttons
   const currentIndex = activeItem 
     ? sortedHistory.findIndex(h => h.moveNumber === activeItem.moveNumber)
     : -1;
@@ -52,13 +84,13 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
 
   const handlePrev = () => {
     if (hasPrev) {
-      setSelectedMoveNum(sortedHistory[currentIndex - 1].moveNumber);
+      onMoveSelect(sortedHistory[currentIndex - 1].moveNumber);
     }
   };
 
   const handleNext = () => {
     if (hasNext) {
-      setSelectedMoveNum(sortedHistory[currentIndex + 1].moveNumber);
+      onMoveSelect(sortedHistory[currentIndex + 1].moveNumber);
     }
   };
 
@@ -133,7 +165,20 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
         )}
 
         {/* Analysis Content */}
-        {analysis && activeItem && (
+        {activeItem && activeItem.isLoading ? (
+           <div className="flex flex-col items-center justify-center h-full pb-20 space-y-6 animate-in fade-in duration-500">
+              <div className="relative">
+                <div className="w-16 h-16 rounded-full border-4 border-stone-100 border-t-accent-gold animate-spin"></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                   <Brain className="w-6 h-6 text-stone-300 animate-pulse" />
+                </div>
+              </div>
+              <div className="text-center space-y-2">
+                 <p className="text-sm font-serif text-stone-600 font-medium tracking-wide">AI 正在深度推演局势...</p>
+                 <p className="text-xs text-stone-400">分析第 {activeItem.moveNumber} 手的变化</p>
+              </div>
+           </div>
+        ) : (analysis && activeItem && (
           <div className="animate-fade-in pb-10">
             
             {/* 1. Evaluation Hero Section */}
@@ -251,7 +296,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
             )}
 
           </div>
-        )}
+        ))}
       </div>
 
       {/* History Footer (Collapsible) */}
@@ -275,10 +320,10 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
              {[...sortedHistory].reverse().map((item) => (
                <div 
                  key={item.moveNumber}
-                 onClick={() => setSelectedMoveNum(item.moveNumber)}
+                 onClick={() => onMoveSelect(item.moveNumber)}
                  className={`
                     flex items-center justify-between p-3 rounded-md cursor-pointer border transition-all
-                    ${selectedMoveNum === item.moveNumber || (!selectedMoveNum && item === sortedHistory[sortedHistory.length-1]) 
+                    ${selectedMoveNumber === item.moveNumber || (!selectedMoveNumber && item === sortedHistory[sortedHistory.length-1]) 
                       ? 'bg-white border-accent-gold shadow-sm' 
                       : 'bg-transparent border-transparent hover:bg-white hover:border-stone-200'}
                  `}
@@ -294,18 +339,24 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ history, isLoading, curre
                      </div>
                      <div className="flex flex-col">
                         <span className="text-xs font-bold text-stone-700">{formatCoord(item.coordinate)}</span>
-                        <span className="text-[10px] text-stone-400 font-serif truncate w-24">{item.analysis.title}</span>
+                        <span className="text-[10px] text-stone-400 font-serif truncate w-24">
+                          {item.isLoading ? "分析中..." : item.analysis.title}
+                        </span>
                      </div>
                   </div>
                   
                   <div className="text-right">
-                     <span className={`
-                       text-xs font-bold px-1.5 py-0.5 rounded
-                       ${item.analysis.evaluation.includes('好') || item.analysis.evaluation.includes('神') ? 'text-emerald-700 bg-emerald-50' : 
-                         item.analysis.evaluation.includes('败') || item.analysis.evaluation.includes('恶') ? 'text-red-700 bg-red-50' : 'text-stone-600 bg-stone-100'}
-                     `}>
-                       {item.analysis.evaluation}
-                     </span>
+                     {item.isLoading ? (
+                       <div className="w-4 h-4 rounded-full border border-stone-300 border-t-accent-gold animate-spin" />
+                     ) : (
+                       <span className={`
+                         text-xs font-bold px-1.5 py-0.5 rounded
+                         ${item.analysis.evaluation.includes('好') || item.analysis.evaluation.includes('神') ? 'text-emerald-700 bg-emerald-50' : 
+                           item.analysis.evaluation.includes('败') || item.analysis.evaluation.includes('恶') ? 'text-red-700 bg-red-50' : 'text-stone-600 bg-stone-100'}
+                       `}>
+                         {item.analysis.evaluation}
+                       </span>
+                     )}
                   </div>
                </div>
              ))}

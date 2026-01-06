@@ -58,6 +58,28 @@ const Board: React.FC<BoardProps> = ({ gameState, onIntersectClick, prevBoardSta
         const isLeft = x === 0;
         const isRight = x === boardSize - 1;
 
+        // Calculate specific classes to avoid conflicts (e.g. h-full vs h-1/2)
+        
+        // Vertical Line
+        let vLineClass = "bg-stone-800 w-px transform -translate-x-1/2 left-1/2 z-0 opacity-90";
+        if (isTop) {
+           vLineClass += " top-1/2 h-1/2"; // Start center, go down
+        } else if (isBottom) {
+           vLineClass += " top-0 h-1/2";   // Start top, go center
+        } else {
+           vLineClass += " top-0 h-full";  // Full height
+        }
+
+        // Horizontal Line
+        let hLineClass = "bg-stone-800 h-px transform -translate-y-1/2 top-1/2 z-0 opacity-90";
+        if (isLeft) {
+           hLineClass += " left-1/2 w-1/2"; // Start center, go right
+        } else if (isRight) {
+           hLineClass += " left-0 w-1/2";   // Start left, go center
+        } else {
+           hLineClass += " left-0 w-full";  // Full width
+        }
+
         cells.push(
           <div 
             key={`${x}-${y}`} 
@@ -71,19 +93,9 @@ const Board: React.FC<BoardProps> = ({ gameState, onIntersectClick, prevBoardSta
 
             {/* Grid Lines - Centered Cross */}
             {/* Vertical Line */}
-            <div 
-              className={`absolute bg-stone-800 w-px transform -translate-x-1/2 left-1/2
-                ${isTop ? 'top-1/2 h-1/2' : 'top-0 h-full'} 
-                ${isBottom ? 'h-1/2' : ''} 
-                z-0 opacity-90`} 
-            />
+            <div className={`absolute ${vLineClass}`} />
             {/* Horizontal Line */}
-            <div 
-              className={`absolute bg-stone-800 h-px transform -translate-y-1/2 top-1/2
-                ${isLeft ? 'left-1/2 w-1/2' : 'left-0 w-full'} 
-                ${isRight ? 'w-1/2' : ''} 
-                z-0 opacity-90`} 
-            />
+            <div className={`absolute ${hLineClass}`} />
             
             {/* Star Point - Centered */}
             {isStarPoint && (

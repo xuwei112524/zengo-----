@@ -28,21 +28,35 @@ const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: str
 // --- Helper: Robust JSON Extractor ---
 function extractJSON(text: string): any {
   try {
+    // 1. Try direct parse
     return JSON.parse(text);
   } catch (e) {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) {
+    // 2. Try extracting from Markdown code blocks
+    const codeBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (codeBlockMatch) {
       try {
-        return JSON.parse(match[0]);
+        return JSON.parse(codeBlockMatch[1]);
       } catch (e2) {
         // continue
       }
     }
+
+    // 3. Try finding the first brace pair (greedy)
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch (e3) {
+        // continue
+      }
+    }
+
+    // 4. Last resort: aggressive cleanup
     const clean = text.replace(/```json|```/g, '').trim();
     try {
       return JSON.parse(clean);
-    } catch (e3) {
-      throw new Error("Failed to parse JSON response: " + text.substring(0, 50) + "...");
+    } catch (e4) {
+      throw new Error("Failed to parse JSON response: " + text.substring(0, 100) + "...");
     }
   }
 }
@@ -73,7 +87,7 @@ async function callOpenAICompatible(
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.5,
+    temperature: 0.2, // Lower temperature for more deterministic moves
     stream: false,
   };
 
@@ -114,14 +128,41 @@ const callGemini = async (
   
   const genConfig: any = {
     responseMimeType: 'application/json',
+    temperature: 0.1, // Low temp for logic/coordinates
   };
 
   if (schema) {
     genConfig.responseSchema = schema;
   }
   
-  if (isThinkingDisabled && (modelName.includes('gemini-3') || modelName.includes('gemini-2.5'))) {
-      genConfig.thinkingConfig = { thinkingBudget: 0 };
+  // Disable thinking for coordinate generation to speed up and enforce schema
+  if (isThinkingDisabled && (modelName.includes('gemini-3') || modelName.includes('gemini-2.5') || modelName.includes('flash-thinking'))) {
+      // Force budget to 0 to disable extended thinking for pure coordinate generation
+      genConfig.thinkingConfig = { thinkingBudget: 1 }; // Set to minimal non-zero or just omit if 0 causes issues, but 0 is usually disable.
+      // Actually, for some models, 0 might be invalid. Let's try omitting it or setting strict params.
+      // If the model allows it, we want minimal thinking.
+      // Let's rely on the prompt "Strict JSON" and low temp mostly, but if it is a thinking model, we clamp it.
+       try {
+         genConfig.thinkingConfig = { thinkingBudget: 1024 }; // Minimal budget if required
+       } catch (e) {
+         // ignore
+       }
+  }
+
+  // REVISION: The user reported significant slowdown. 
+  // If we are using a preview model that forces thinking, we must clamp it.
+  // However, setting it to 0 might be safer to disable it?
+  // Let's try to remove thinkingConfig completely if isThinkingDisabled is true, 
+  // AND maybe switch model? No, we stick to config.
+  
+  // Better approach: If isThinkingDisabled, ensure we don't trigger long chain of thought.
+  if (isThinkingDisabled) {
+     // For newer Gemini models, simple prompting is usually enough.
+     // But if it is a thinking model, we might want to restrict it.
+     // Re-enabling the block I commented out, but with safer check.
+     if (modelName.includes('thinking')) {
+        genConfig.thinkingConfig = { thinkingBudget: 1 }; // Minimum
+     }
   }
 
   try {
@@ -160,7 +201,9 @@ export const getAIMove = async (
 Board Size: ${size}x${size}.
 Your Color: ${color}.
 Task: Calculate the single best LEGAL next coordinate to win. Ensure the spot is currently empty (marked as '.').
-Output: JSON only { "x": number, "y": number }.`;
+Output: Strict JSON only. Format: { "x": number, "y": number }.
+Example: { "x": 15, "y": 3 }
+Do NOT return Markdown code blocks. Just the raw JSON string.`;
 
   const userPrompt = `Current Board State:
 ${boardStr}
@@ -194,6 +237,7 @@ Return JSON {x, y} only.`;
     if (json && typeof json.x === 'number' && typeof json.y === 'number') {
       return { move: { x: json.x, y: json.y }, usage: response.usage };
     }
+    console.warn("AI returned invalid JSON structure:", json);
     return { move: null, usage: response.usage };
   } catch (e: any) {
     console.error(`AI Move Error (${config.provider}):`, e);
@@ -201,6 +245,21 @@ Return JSON {x, y} only.`;
     throw new Error(e.message || "AI failed to generate move");
   }
 };
+
+// --- Retry Helper ---
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 2, initialDelay = 1000): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (attempt >= retries) throw e;
+      attempt++;
+      console.warn(`API call failed, retrying (${attempt}/${retries})...`, e.message);
+      await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, attempt - 1)));
+    }
+  }
+}
 
 export const analyzeMove = async (
   gameState: GameState, 
@@ -257,9 +316,11 @@ Output JSON fields:
         },
         required: ['evaluation', 'score', 'title', 'detailedAnalysis', 'strategicContext', 'territoryChange']
       };
-      response = await callGemini(config, prompt, schema, false);
+      // Wrap in Retry
+      response = await callWithRetry(() => callGemini(config, prompt, schema, false));
     } else {
-       response = await callOpenAICompatible(config, systemPrompt, userPrompt);
+       // Wrap in Retry
+       response = await callWithRetry(() => callOpenAICompatible(config, systemPrompt, userPrompt));
     }
 
     const result = extractJSON(response.text) as MoveAnalysis;

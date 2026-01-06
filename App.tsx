@@ -10,6 +10,17 @@ import { RotateCcw, Play, Undo2, TrendingUp, Activity, Settings, Cpu, Coins } fr
 
 const BOARD_SIZE = 19; 
 
+const LOADING_ANALYSIS: MoveAnalysis = {
+  evaluation: '普通',
+  score: 50,
+  title: 'AI 思考中...',
+  detailedAnalysis: '正在进行深度局势推演...',
+  strategicContext: '...',
+  josekiOrProverbs: [],
+  territoryChange: 0,
+  variations: []
+};
+
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(createInitialState(BOARD_SIZE));
   const [history, setHistory] = useState<GameState[]>([]); // Store history for Undo
@@ -18,8 +29,34 @@ const App: React.FC = () => {
   // New: Store history of analyses
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryItem[]>([]);
   
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  // New: State for Time Travel (Viewing a past move)
+  const [viewingMoveNum, setViewingMoveNum] = useState<number | null>(null);
+
+  // Derived state for global analyzing indicator
+  const isAnalyzing = analysisHistory.some(item => item.isLoading);
+
   const [isAiThinking, setIsAiThinking] = useState(false);
+  // ... (rest of state)
+
+  // Compute which GameState to display on the board
+  const displayGameState = React.useMemo(() => {
+    // If not viewing history, or viewing the latest move, show current state
+    const currentMoveCount = gameState.moveHistory.length;
+    if (viewingMoveNum === null || viewingMoveNum === currentMoveCount) {
+      return gameState;
+    }
+    
+    // Retrieve historical state
+    // history[0] = Initial State (Move 0)
+    // history[1] = State after Move 1
+    // history[k] = State after Move k
+    if (viewingMoveNum >= 0 && viewingMoveNum < history.length) {
+      return history[viewingMoveNum];
+    }
+    
+    return gameState;
+  }, [gameState, history, viewingMoveNum]);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [scoreEst, setScoreEst] = useState<{leadColor: PlayerColor, diff: number} | null>(null);
   
@@ -50,11 +87,11 @@ const App: React.FC = () => {
     localStorage.setItem('zenGo_aiConfig', JSON.stringify(newConfig));
   };
 
-  // Update score estimate whenever game state changes
+  // Update score estimate whenever game state changes (use displayGameState to show estimate for past moves too!)
   useEffect(() => {
-    const est = estimateScore(gameState);
+    const est = estimateScore(displayGameState);
     setScoreEst(est);
-  }, [gameState]);
+  }, [displayGameState]); // Changed dependency to displayGameState
 
   const handleRestart = () => {
     const fresh = createInitialState(BOARD_SIZE);
@@ -62,8 +99,11 @@ const App: React.FC = () => {
     setHistory([]);
     setPrevBoard(undefined);
     setAnalysisHistory([]);
+    setViewingMoveNum(null); // Reset view
     setErrorMsg(null);
     setTotalTokens(0);
+    // Force reset loading states in case restart happened during AI turn
+    setIsAiThinking(false);
   };
 
   const handleUndo = () => {
@@ -84,6 +124,7 @@ const App: React.FC = () => {
       setGameState(targetState);
       setHistory(newHistory);
       setPrevBoard(newHistory.length > 0 ? newHistory[newHistory.length - 1].board : undefined);
+      setViewingMoveNum(null); // Reset view on undo
       
       // Sync Analysis History: Remove the last N entries
       const currentMoveCount = targetState.moveHistory.length;
@@ -92,6 +133,15 @@ const App: React.FC = () => {
   };
 
   const makeMove = async (x: number, y: number) => {
+    // If viewing history, jump to latest before playing? Or block?
+    // Let's just block if not looking at latest, OR implicitly jump to latest.
+    // Standard behavior: if you play, you play from the current actual state.
+    // The UI should probably reflect we are back to latest.
+    if (viewingMoveNum !== null && viewingMoveNum !== gameState.moveHistory.length) {
+       // Optional: Auto-jump to latest
+       setViewingMoveNum(null);
+    }
+
     // 1. Player Move
     const result = playMove(gameState, x, y);
     if (!result.success || !result.newState) {
@@ -108,26 +158,44 @@ const App: React.FC = () => {
     // Update State
     const playerMovedState = result.newState;
     setGameState(playerMovedState);
+    setViewingMoveNum(null); // Ensure we are looking at live board
     
     // Current Move Number (1-based)
     const currentMoveNum = playerMovedState.moveHistory.length;
     const currentPlayerColor = gameState.currentPlayer; // Who JUST moved
 
-    // 2. Trigger Analysis (Parallel)
-    setIsAnalyzing(true);
+    // 2. Trigger Analysis (Parallel) - WITH PLACEHOLDER
+    setAnalysisHistory(prev => [
+      ...prev, 
+      {
+        moveNumber: currentMoveNum,
+        player: currentPlayerColor,
+        coordinate: {x, y},
+        analysis: LOADING_ANALYSIS,
+        isLoading: true
+      }
+    ]);
+
     analyzeMove(playerMovedState, { x, y }, aiConfig).then(({ analysis, usage }) => {
-      // Add to history
-      setAnalysisHistory(prev => [
-        ...prev, 
-        {
-          moveNumber: currentMoveNum,
-          player: currentPlayerColor,
-          coordinate: {x, y},
-          analysis: analysis
+      // Update the placeholder with real data
+      setAnalysisHistory(prev => prev.map(item => {
+        if (item.moveNumber === currentMoveNum) {
+          return { ...item, analysis, isLoading: false };
         }
-      ]);
+        return item;
+      }));
       setTotalTokens(prev => prev + usage);
-      setIsAnalyzing(false);
+    }).catch(err => {
+      setAnalysisHistory(prev => prev.map(item => {
+        if (item.moveNumber === currentMoveNum) {
+          return { 
+            ...item, 
+            isLoading: false,
+            analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "网络超时，请检查连接。" }
+          };
+        }
+        return item;
+      }));
     });
 
     // 3. AI Turn
@@ -158,22 +226,40 @@ const App: React.FC = () => {
                setHistory(prev => [...prev, playerMovedState]);
                setPrevBoard(playerMovedState.board);
                setGameState(aiResult.newState);
+               setViewingMoveNum(null); // Ensure live view
                validMoveFound = true;
 
-               // Analyze AI Move as well
-               setIsAnalyzing(true);
+               // Analyze AI Move as well - WITH PLACEHOLDER
+               setAnalysisHistory(prev => [
+                ...prev, 
+                {
+                  moveNumber: aiMoveNum,
+                  player: PlayerColor.White,
+                  coordinate: aiCoords,
+                  analysis: LOADING_ANALYSIS,
+                  isLoading: true
+                }
+              ]);
+
                analyzeMove(aiResult.newState, aiCoords, aiConfig).then(({ analysis: aiAnalysisResult, usage: analysisUsage }) => {
-                  setAnalysisHistory(prev => [
-                    ...prev, 
-                    {
-                      moveNumber: aiMoveNum,
-                      player: PlayerColor.White,
-                      coordinate: aiCoords,
-                      analysis: aiAnalysisResult
+                  setAnalysisHistory(prev => prev.map(item => {
+                    if (item.moveNumber === aiMoveNum) {
+                      return { ...item, analysis: aiAnalysisResult, isLoading: false };
                     }
-                  ]);
+                    return item;
+                  }));
                   setTotalTokens(prev => prev + analysisUsage);
-                  setIsAnalyzing(false);
+               }).catch(err => {
+                  setAnalysisHistory(prev => prev.map(item => {
+                    if (item.moveNumber === aiMoveNum) {
+                      return { 
+                        ...item, 
+                        isLoading: false,
+                        analysis: { ...LOADING_ANALYSIS, title: "分析失败", detailedAnalysis: "网络超时，请检查连接。" }
+                      };
+                    }
+                    return item;
+                  }));
                });
 
             } else {
@@ -201,6 +287,7 @@ const App: React.FC = () => {
                 setHistory(prev => [...prev, playerMovedState]);
                 setPrevBoard(playerMovedState.board);
                 setGameState(fbResult.newState);
+                setViewingMoveNum(null);
                 setErrorMsg("AI 遇到困难，已随机落子");
                 setTimeout(() => setErrorMsg(null), 2000);
             }
@@ -279,9 +366,9 @@ const App: React.FC = () => {
           <div className="relative h-full w-full flex items-center justify-center">
             <div className="relative aspect-square h-full max-h-[calc(100vh-9rem)] shadow-2xl rounded-sm">
               <Board 
-                gameState={gameState} 
+                gameState={displayGameState} 
                 onIntersectClick={(x, y) => !isAiThinking && makeMove(x, y)}
-                prevBoardState={prevBoard}
+                prevBoardState={prevBoard} // Ideally, this should also reflect history if viewing past, but might be minor visual glitch
               />
             </div>
           </div>
@@ -292,12 +379,12 @@ const App: React.FC = () => {
               
               {/* Black Stats */}
               <div className="flex items-center gap-3 opacity-90">
-                  <div className={`w-8 h-8 rounded-full bg-black shadow-lg border-2 flex items-center justify-center transition-all ${gameState.currentPlayer === PlayerColor.Black ? 'border-accent-gold scale-110' : 'border-transparent'}`}>
+                  <div className={`w-8 h-8 rounded-full bg-black shadow-lg border-2 flex items-center justify-center transition-all ${displayGameState.currentPlayer === PlayerColor.Black ? 'border-accent-gold scale-110' : 'border-transparent'}`}>
                     <span className="text-[10px] text-white/50">黑</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className={`text-sm font-bold ${gameState.currentPlayer === PlayerColor.Black ? 'text-ink' : 'text-stone-400'}`}>Black</span>
-                    <span className="text-[10px] text-stone-500">提子: {gameState.capturedWhite}</span>
+                    <span className={`text-sm font-bold ${displayGameState.currentPlayer === PlayerColor.Black ? 'text-ink' : 'text-stone-400'}`}>Black</span>
+                    <span className="text-[10px] text-stone-500">提子: {displayGameState.capturedWhite}</span>
                   </div>
               </div>
 
@@ -314,10 +401,10 @@ const App: React.FC = () => {
               {/* White Stats */}
               <div className="flex items-center gap-3 opacity-90">
                   <div className="flex flex-col items-end">
-                    <span className={`text-sm font-bold ${gameState.currentPlayer === PlayerColor.White ? 'text-ink' : 'text-stone-400'}`}>White</span>
-                    <span className="text-[10px] text-stone-500">提子: {gameState.capturedBlack}</span>
+                    <span className={`text-sm font-bold ${displayGameState.currentPlayer === PlayerColor.White ? 'text-ink' : 'text-stone-400'}`}>White</span>
+                    <span className="text-[10px] text-stone-500">提子: {displayGameState.capturedBlack}</span>
                   </div>
-                  <div className={`w-8 h-8 rounded-full bg-white shadow-lg border-2 flex items-center justify-center transition-all ${gameState.currentPlayer === PlayerColor.White ? 'border-accent-gold scale-110' : 'border-stone-300'}`}>
+                  <div className={`w-8 h-8 rounded-full bg-white shadow-lg border-2 flex items-center justify-center transition-all ${displayGameState.currentPlayer === PlayerColor.White ? 'border-accent-gold scale-110' : 'border-stone-300'}`}>
                     <span className="text-[10px] text-black/50">白</span>
                   </div>
               </div>
@@ -335,7 +422,9 @@ const App: React.FC = () => {
       <AnalysisPanel 
         history={analysisHistory}
         isLoading={isAnalyzing} 
-        currentMoveNumber={gameState.moveHistory.length}
+        currentMoveNumber={displayGameState.moveHistory.length}
+        selectedMoveNumber={viewingMoveNum}
+        onMoveSelect={(num) => setViewingMoveNum(num)}
       />
 
     </div>
