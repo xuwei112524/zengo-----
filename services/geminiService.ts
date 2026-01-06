@@ -15,7 +15,7 @@ const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: str
   },
   zhipu: {
     baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-    defaultModel: 'glm-4.7',
+    defaultModel: 'glm-4.5-flash',
     jsonMode: true
   },
   qwen: { 

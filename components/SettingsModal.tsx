@@ -13,7 +13,7 @@ interface SettingsModalProps {
 const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
   { id: 'gemini', name: 'Google Gemini', description: 'Gemini 3 Flash (最新预览版)' },
   { id: 'deepseek', name: 'DeepSeek', description: 'DeepSeek V3 (高性价比)' },
-  { id: 'zhipu', name: 'Zhipu AI (智谱)', description: 'GLM-4.7 (最新最强推理)' },
+  { id: 'zhipu', name: 'Zhipu AI (智谱)', description: 'GLM-4.5-Flash (高速响应)' },
   { id: 'qwen', name: 'Qwen (通义千问)', description: 'Qwen-Plus/Max (综合能力强)' },
 ];
 
@@ -99,7 +99,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
         },
         zhipu: {
           baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-          model: 'glm-4.7'
+          model: 'glm-4.5-flash'
         }
       };
 
