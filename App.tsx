@@ -227,8 +227,8 @@ const App: React.FC = () => {
       }
     ]);
 
-    // 延迟分析以避免限流（特别是 GLM-4.5-Flash）
-    const analyzeDelay = aiConfig.provider === 'zhipu' ? 2000 : 0;
+    // 延迟分析以避免限流
+    const analyzeDelay = 0;
     setTimeout(() => {
       analyzeMove(playerMovedState, { x, y }, aiConfig).then(({ analysis, usage }) => {
         setAnalysisHistory(prev => prev.map(item => {
@@ -296,7 +296,7 @@ const App: React.FC = () => {
                ]);
 
                // 延迟分析以避免限流
-               const aiAnalyzeDelay = aiConfig.provider === 'zhipu' ? 2000 : 0;
+               const aiAnalyzeDelay = 0;
                setTimeout(() => {
                  analyzeMove(aiResult.newState, aiCoords, aiConfig).then(({ analysis: aiAnalysisResult, usage: analysisUsage }) => {
                     setAnalysisHistory(prev => prev.map(item => {

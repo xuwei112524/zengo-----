@@ -4,24 +4,19 @@ import { GameState, PlayerColor, Coordinate, MoveAnalysis, AIConfig, AIProvider 
 
 // Default Configuration Maps
 const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: string, jsonMode: boolean }> = {
-  gemini: { 
+  gemini: {
     defaultModel: 'gemini-3-flash-preview', // Changed back to 3-Flash as requested
-    jsonMode: true 
-  },
-  deepseek: { 
-    baseURL: 'https://api.deepseek.com/chat/completions', 
-    defaultModel: 'deepseek-chat', 
-    jsonMode: true 
-  },
-  zhipu: {
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-    defaultModel: 'glm-4.5-flash',
     jsonMode: true
   },
-  qwen: { 
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 
-    defaultModel: 'qwen-plus', 
-    jsonMode: true 
+  deepseek: {
+    baseURL: 'https://api.deepseek.com/chat/completions',
+    defaultModel: 'deepseek-chat',
+    jsonMode: true
+  },
+  qwen: {
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    defaultModel: 'qwen-plus',
+    jsonMode: true
   }
 };
 

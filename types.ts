@@ -47,7 +47,7 @@ export interface GameState {
 }
 
 // AI Configuration Types
-export type AIProvider = 'gemini' | 'deepseek' | 'zhipu' | 'qwen';
+export type AIProvider = 'gemini' | 'deepseek' | 'qwen';
 
 export interface AIConfig {
   provider: AIProvider;
