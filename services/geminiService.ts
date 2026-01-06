@@ -13,10 +13,10 @@ const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: str
     defaultModel: 'deepseek-chat', 
     jsonMode: true 
   },
-  zhipu: { 
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', 
-    defaultModel: 'glm-4-plus', 
-    jsonMode: true 
+  zhipu: {
+    baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+    defaultModel: 'glm-4.7',
+    jsonMode: true
   },
   qwen: { 
     baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 

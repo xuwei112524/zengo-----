@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AIProvider, AIConfig } from '../types';
-import { X, Save, Key, Cpu, AlertCircle, Trash2, CheckCircle2 } from 'lucide-react';
+import { X, Save, Key, Cpu, AlertCircle, Trash2, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,7 +13,7 @@ interface SettingsModalProps {
 const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
   { id: 'gemini', name: 'Google Gemini', description: 'Gemini 3 Flash (最新预览版)' },
   { id: 'deepseek', name: 'DeepSeek', description: 'DeepSeek V3 (高性价比)' },
-  { id: 'zhipu', name: 'Zhipu AI (智谱)', description: 'GLM-4-Plus (更强推理/性价比)' },
+  { id: 'zhipu', name: 'Zhipu AI (智谱)', description: 'GLM-4.7 (最新最强推理)' },
   { id: 'qwen', name: 'Qwen (通义千问)', description: 'Qwen-Plus/Max (综合能力强)' },
 ];
 
@@ -22,6 +22,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
   const [apiKey, setApiKey] = useState<string>(currentConfig.apiKey);
   // Store separate keys for each provider in local state wrapper to improve UX
   const [keysMap, setKeysMap] = useState<Record<string, string>>({});
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testMessage, setTestMessage] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
@@ -57,6 +60,77 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
       delete newMap[provider];
       setKeysMap(newMap);
       localStorage.setItem('zenGo_apiKeys', JSON.stringify(newMap));
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKey.trim()) {
+      setTestResult('error');
+      setTestMessage('请先输入 API Key');
+      return;
+    }
+
+    setIsTesting(true);
+    setTestResult(null);
+    setTestMessage('');
+
+    try {
+      // Gemini uses GoogleGenAI SDK
+      if (provider === 'gemini') {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey });
+        await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: 'Hi',
+        });
+        setTestResult('success');
+        setTestMessage('连接成功！模型: gemini-3-flash-preview');
+        return;
+      }
+
+      // OpenAI-compatible APIs
+      const config: Record<string, { baseURL: string; model: string }> = {
+        deepseek: {
+          baseURL: 'https://api.deepseek.com/chat/completions',
+          model: 'deepseek-chat'
+        },
+        qwen: {
+          baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+          model: 'qwen-plus'
+        },
+        zhipu: {
+          baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+          model: 'glm-4.7'
+        }
+      };
+
+      const conf = config[provider];
+      const response = await fetch(conf.baseURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: conf.model,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 5
+        })
+      });
+
+      if (response.ok) {
+        setTestResult('success');
+        setTestMessage(`连接成功！模型: ${conf.model}`);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setTestResult('error');
+        setTestMessage(errorData.error?.message || `连接失败 (${response.status})`);
+      }
+    } catch (error) {
+      setTestResult('error');
+      setTestMessage('网络错误，请检查 API Key 或网络连接');
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const handleSave = () => {
@@ -158,6 +232,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
                 <p className="text-[10px] text-amber-700 leading-tight">
                   您的 API Key 仅存储在本地浏览器中，用于直连模型 API。
                 </p>
+             </div>
+
+             {/* Test Connection Button */}
+             <div className="flex items-center gap-3">
+               <button
+                 onClick={handleTestConnection}
+                 disabled={isTesting || !apiKey.trim()}
+                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                   isTesting
+                     ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                     : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
+                 }`}
+               >
+                 {isTesting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                 {isTesting ? '测试中...' : '测试连接'}
+               </button>
+
+               {testResult && (
+                 <span className={`text-xs font-medium ${
+                   testResult === 'success' ? 'text-emerald-600' : 'text-red-500'
+                 }`}>
+                   {testMessage}
+                 </span>
+               )}
              </div>
           </div>
 
