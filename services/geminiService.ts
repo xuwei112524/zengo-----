@@ -176,6 +176,60 @@ const callGemini = async (
   }
 };
 
+// --- Helper: SGF Converter ---
+function toSGFCoordinate(c: Coordinate): string {
+  const alphabet = "abcdefghijklmnopqrs"; // 19x19 support
+  if (c.x < 0 || c.x >= 19 || c.y < 0 || c.y >= 19) return "";
+  return alphabet[c.x] + alphabet[c.y];
+}
+
+function generateSGF(history: Coordinate[], size: number): string {
+  let sgf = `(;GM[1]FF[4]SZ[${size}]`;
+  // Assuming Black always starts for simplicity in this history tracking
+  history.forEach((move, index) => {
+    const color = index % 2 === 0 ? "B" : "W"; 
+    sgf += `;${color}[${toSGFCoordinate(move)}]`;
+  });
+  sgf += ")";
+  return sgf;
+}
+
+// --- Helper: Enhanced Board Formatter ---
+function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]): string {
+  const size = board.length;
+  
+  // 1. ASCII Visual Grid with Coordinates
+  let gridStr = "   "; // Header padding
+  // X-axis header (00 01 ... 18)
+  for (let x = 0; x < size; x++) {
+    gridStr += x.toString().padStart(2, '0') + " ";
+  }
+  gridStr += "\n";
+
+  for (let y = 0; y < size; y++) {
+    // Y-axis label
+    gridStr += y.toString().padStart(2, '0') + " ";
+    
+    for (let x = 0; x < size; x++) {
+       const cell = board[y][x];
+       // Visualize stones: X for Black, O for White, . for Empty
+       const char = cell === PlayerColor.Black ? 'X' : (cell === PlayerColor.White ? 'O' : '.');
+       gridStr += " " + char + " "; 
+    }
+    gridStr += "\n";
+  }
+
+  // 2. SGF History
+  const sgf = generateSGF(moveHistory, size);
+
+  return `Game History (SGF):
+${sgf}
+
+Visual Board (X=Column 0-18, Y=Row 0-18):
+(X: Black, O: White, .: Empty)
+${gridStr}`;
+}
+
 // --- Main Exported Functions ---
 
 export const getAIMove = async (
@@ -184,7 +238,7 @@ export const getAIMove = async (
   config: AIConfig
 ): Promise<{ move: Coordinate | null, usage: number }> => {
   
-  const boardStr = gameState.board.map(row => row.join('')).join('\n');
+  const boardDescription = formatBoardEnhanced(gameState.board, gameState.moveHistory);
   const size = gameState.boardSize;
   const color = gameState.currentPlayer === PlayerColor.Black ? 'Black' : 'White';
   
@@ -197,11 +251,12 @@ Board Size: ${size}x${size}.
 Your Color: ${color}.
 Task: Calculate the single best LEGAL next coordinate to win. Ensure the spot is currently empty (marked as '.').
 Output: Strict JSON only. Format: { "x": number, "y": number }.
+Coordinates are 0-indexed (0 to ${size - 1}).
 Example: { "x": 15, "y": 3 }
 Do NOT return Markdown code blocks. Just the raw JSON string.`;
 
-  const userPrompt = `Current Board State:
-${boardStr}
+  const userPrompt = `Current Game State:
+${boardDescription}
 
 The last move was at: ${gameState.lastMove?.x},${gameState.lastMove?.y}.
 
@@ -261,7 +316,7 @@ export const analyzeMove = async (
   move: Coordinate,
   config: AIConfig
 ): Promise<{ analysis: MoveAnalysis, usage: number }> => {
-  const boardStr = gameState.board.map(row => row.join('')).join('\n');
+  const boardDescription = formatBoardEnhanced(gameState.board, gameState.moveHistory);
   const player = gameState.currentPlayer === PlayerColor.Black ? 'White' : 'Black';
 
   const systemPrompt = `Act as a world-class Go (Weiqi) Professional 9-dan teacher.
@@ -269,8 +324,8 @@ Analyze the last move played by ${player} at x=${move.x}, y=${move.y}.
 Provide a deep, sophisticated analysis in Chinese (Simplified).
 Return strict JSON matching the requested schema.`;
 
-  const userPrompt = `Board Context:
-${boardStr}
+  const userPrompt = `Game Context:
+${boardDescription}
 
 Output JSON fields:
 1. evaluation: "神之一手" | "好棋" | "普通" | "缓手" | "恶手" | "败着"
