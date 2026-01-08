@@ -11,14 +11,20 @@ interface SettingsModalProps {
 }
 
 const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
-  { id: 'gemini', name: 'Google Gemini', description: 'Gemini 3 Flash (最新预览版)' },
+  { id: 'gemini', name: 'Google Gemini', description: 'Google 强大的生成式 AI' },
   { id: 'deepseek', name: 'DeepSeek', description: 'DeepSeek V3 (高性价比)' },
   { id: 'qwen', name: 'Qwen (通义千问)', description: 'Qwen-Plus/Max (综合能力强)' },
+];
+
+const GEMINI_MODELS = [
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (最新预览版)', description: '最快且最新的预览模型' },
+  { id: 'gemini-flash-lite-latest', name: 'Gemini Flash Lite', description: '极速响应，轻量级模型' },
 ];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentConfig, onSave }) => {
   const [provider, setProvider] = useState<AIProvider>(currentConfig.provider);
   const [apiKey, setApiKey] = useState<string>(currentConfig.apiKey);
+  const [modelName, setModelName] = useState<string | undefined>(currentConfig.modelName);
   // Store separate keys for each provider in local state wrapper to improve UX
   const [keysMap, setKeysMap] = useState<Record<string, string>>({});
   const [isTesting, setIsTesting] = useState(false);
@@ -28,6 +34,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
   useEffect(() => {
     if (isOpen) {
       setProvider(currentConfig.provider);
+      setModelName(currentConfig.modelName || (currentConfig.provider === 'gemini' ? 'gemini-3-flash-preview' : undefined));
       // Try to load saved keys map from localStorage
       const savedKeys = localStorage.getItem('zenGo_apiKeys');
       if (savedKeys) {
@@ -51,6 +58,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
     setProvider(p);
     // Restore key if exists
     setApiKey(keysMap[p] || '');
+    
+    // Reset model if switching providers
+    if (p !== 'gemini') {
+        setModelName(undefined);
+    } else {
+        setModelName(currentConfig.modelName || 'gemini-3-flash-preview');
+    }
   };
 
   const handleClearKey = () => {
@@ -77,12 +91,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
       if (provider === 'gemini') {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
+        const testModel = modelName || 'gemini-3-flash-preview';
         await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: testModel,
           contents: 'Hi',
         });
         setTestResult('success');
-        setTestMessage('连接成功！模型: gemini-3-flash-preview');
+        setTestMessage(`连接成功！模型: ${testModel}`);
         return;
       }
 
@@ -139,7 +154,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
     onSave({
       provider,
       apiKey,
-      modelName: undefined 
+      modelName 
     });
     onClose();
   };
@@ -162,11 +177,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto max-h-[80vh]">
           
           {/* Provider Selection */}
           <div className="space-y-3">
-            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">选择 AI 模型</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">选择 AI 供应商</label>
             <div className="grid grid-cols-1 gap-2">
               {PROVIDERS.map((p) => {
                 const hasKey = !!keysMap[p.id];
@@ -196,6 +211,33 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
               })}
             </div>
           </div>
+
+          {/* Model Selection (Gemini Only) */}
+          {provider === 'gemini' && (
+            <div className="space-y-3 animate-slide-down">
+              <label className="text-xs font-bold uppercase tracking-wider text-stone-500">选择 Gemini 模型</label>
+              <div className="grid grid-cols-1 gap-2">
+                {GEMINI_MODELS.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setModelName(m.id)}
+                    className={`
+                      flex items-center p-2.5 rounded-md border text-left transition-all
+                      ${modelName === m.id 
+                        ? 'border-accent-gold/60 bg-white shadow-sm' 
+                        : 'border-stone-100 hover:border-stone-200 bg-stone-50/30'}
+                    `}
+                  >
+                    <div className={`w-2 h-2 rounded-full mr-3 ${modelName === m.id ? 'bg-accent-gold' : 'bg-stone-200'}`}></div>
+                    <div>
+                      <div className="text-xs font-bold text-stone-700">{m.name}</div>
+                      <div className="text-[9px] text-stone-400">{m.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* API Key Input */}
           <div className="space-y-3">
