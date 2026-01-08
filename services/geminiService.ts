@@ -202,6 +202,28 @@ function generateSGF(history: Coordinate[], size: number): string {
   return sgf;
 }
 
+// --- Helper: Explicit Stone List for AI Precision ---
+function getOccupiedCoordinatesList(board: PlayerColor[][]): string {
+  const blackStones: string[] = [];
+  const whiteStones: string[] = [];
+  const size = board.length;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cell = board[y][x];
+      if (cell === PlayerColor.Black) {
+        blackStones.push(toHumanCoordinate({x, y}));
+      } else if (cell === PlayerColor.White) {
+        whiteStones.push(toHumanCoordinate({x, y}));
+      }
+    }
+  }
+
+  return `Occupied Coordinates (Explicit List):
+Black Stones (${blackStones.length}): [${blackStones.join(', ')}]
+White Stones (${whiteStones.length}): [${whiteStones.join(', ')}]`;
+}
+
 // --- Helper: Enhanced Board Formatter ---
 function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]): string {
   const size = board.length;
@@ -230,10 +252,15 @@ function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]):
   // 2. SGF History
   const sgf = generateSGF(moveHistory, size);
 
+  // 3. Explicit List
+  const stoneList = getOccupiedCoordinatesList(board);
+
   return `Game History (SGF):
 ${sgf}
 
-Visual Board:
+${stoneList}
+
+Visual Board (For spatial context):
 (Coordinates: X=A-T, Y=19-1. X: Black, O: White, .: Empty)
 ${gridStr}`;
 }
@@ -264,7 +291,16 @@ export const getAIMove = async (
   const systemPrompt = `You are a professional Go (Weiqi) player (9-dan).
 Board Size: ${size}x${size}.
 Your Color: ${color}.
-Task: Calculate the single best LEGAL next coordinate to win. Ensure the spot is currently empty (marked as '.').
+
+GO RULES REMINDER:
+1. Liberties: A stone or group needs at least one empty adjacent point (liberty) to survive.
+2. Capture: Surround opponent stones completely to capture them.
+3. Suicide: You cannot play a move that leaves your group with 0 liberties (unless it captures opponent stones immediately).
+4. Ko: Do not repeat the exact previous board position.
+
+Task: Calculate the single best LEGAL next coordinate to win. 
+CRITICAL: Cross-reference the "Visual Board" with the "Occupied Coordinates" list. 
+Ensure the spot you choose is NOT in the "Occupied Coordinates" list.
 
 Coordinate System:
 - Internal: 0-indexed (x: 0-18, y: 0-18).
@@ -352,6 +388,8 @@ Precise Location Data:
 
 Board Visualization uses Standard Go coordinates (A-T, 19-1).
 Mapping: (0,0) is Top-Left (A19).
+
+CRITICAL: The "Occupied Coordinates" list provides the exact location of every stone. Use it to verify the visual board.
 
 Provide a deep, sophisticated analysis in Chinese (Simplified).
 IMPORTANT: When referring to the move in your text, explicitly use the Standard Coordinate "${humanCoord}".

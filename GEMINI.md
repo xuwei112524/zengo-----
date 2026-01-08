@@ -16,6 +16,7 @@ ZenGo is a modern, AI-powered Go (Weiqi) web application designed for teaching a
 3.  **Deep Analysis:** "Professional 9-dan" style commentary on every move, including score estimation, strategic context, and variations.
 4.  **Time Travel Analysis:** Review past moves with full board state restoration. Even if stones were captured later, viewing a past move shows the board exactly as it was.
 5.  **Robust Error Handling:** AI calls feature exponential backoff retry logic and optimistic UI updates to ensure a smooth experience even with network latency.
+6.  **Enhanced AI Perception:** Uses a dual-mode board representation (Visual ASCII + Explicit Coordinate List) to eliminate AI hallucinations regarding stone positions, ensuring accurate move generation and analysis.
 
 ## Architecture
 
@@ -35,7 +36,11 @@ The project follows a clean three-layer architecture:
 *   **`geminiService.ts`**: The AI bridge.
     *   `getAIMove()`: Asks the AI for the next best coordinate (JSON output).
     *   `analyzeMove()`: Requests a detailed critique of a specific move.
-    *   **Features**: Robust JSON extraction (handles Markdown wrapping), automatic retries with backoff, and temperature control for stability.
+    *   **Features**:
+        *   **Robust JSON Extraction**: Handles Markdown wrapping and fuzzy parsing.
+        *   **Explicit Coordinate List**: Generates a text-based list of all stone positions (e.g., `Black: [D4, Q16]`) alongside the visual ASCII board. This forces the AI to cross-reference data, solving "blindness" issues common in LLMs.
+        *   **Rule Injection**: System prompts now explicitly define Go rules (Liberties, Capture, Suicide, Ko) to prevent illegal AI moves.
+        *   **Retry Logic**: Automatic retries with exponential backoff for network stability.
 
 ### 3. State Management (`App.tsx`)
 *   Acts as the central controller.
