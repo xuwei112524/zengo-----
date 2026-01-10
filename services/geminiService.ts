@@ -202,28 +202,6 @@ function generateSGF(history: Coordinate[], size: number): string {
   return sgf;
 }
 
-// --- Helper: Explicit Stone List for AI Precision ---
-function getOccupiedCoordinatesList(board: PlayerColor[][]): string {
-  const blackStones: string[] = [];
-  const whiteStones: string[] = [];
-  const size = board.length;
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const cell = board[y][x];
-      if (cell === PlayerColor.Black) {
-        blackStones.push(toHumanCoordinate({x, y}));
-      } else if (cell === PlayerColor.White) {
-        whiteStones.push(toHumanCoordinate({x, y}));
-      }
-    }
-  }
-
-  return `Occupied Coordinates (Explicit List):
-Black Stones (${blackStones.length}): [${blackStones.join(', ')}]
-White Stones (${whiteStones.length}): [${whiteStones.join(', ')}]`;
-}
-
 // --- Helper: Enhanced Board Formatter ---
 function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]): string {
   const size = board.length;
@@ -252,13 +230,8 @@ function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]):
   // 2. SGF History
   const sgf = generateSGF(moveHistory, size);
 
-  // 3. Explicit List
-  const stoneList = getOccupiedCoordinatesList(board);
-
   return `Game History (SGF):
 ${sgf}
-
-${stoneList}
 
 Visual Board (For spatial context):
 (Coordinates: X=A-T, Y=19-1. X: Black, O: White, .: Empty)
@@ -291,25 +264,15 @@ export const getAIMove = async (
   const systemPrompt = `You are a professional Go (Weiqi) player (9-dan).
 Board Size: ${size}x${size}.
 Your Color: ${color}.
+Game Rules: Chinese Rules (Komis 7.5).
 
-GO RULES REMINDER:
-1. Liberties: A stone or group needs at least one empty adjacent point (liberty) to survive.
-2. Capture: Surround opponent stones completely to capture them.
-3. Suicide: You cannot play a move that leaves your group with 0 liberties (unless it captures opponent stones immediately).
-4. Ko: Do not repeat the exact previous board position.
-
-Task: Calculate the single best LEGAL next coordinate to win. 
-CRITICAL: Cross-reference the "Visual Board" with the "Occupied Coordinates" list. 
-Ensure the spot you choose is NOT in the "Occupied Coordinates" list.
+Task: Calculate the single best LEGAL next coordinate to win.
+Output: Strict JSON { "x": number, "y": number }.
+Example: { "x": 15, "y": 3 } (Q16).
 
 Coordinate System:
-- Internal: 0-indexed (x: 0-18, y: 0-18).
-- Standard: A-T (skip I), 19-1.
-- Mapping: Internal(0,0) = A19 (Top-Left). Internal(18,18) = T1 (Bottom-Right).
-
-Output: Strict JSON only. Format: { "x": number, "y": number }.
-Example: { "x": 15, "y": 3 } (which is Q16).
-Do NOT return Markdown code blocks. Just the raw JSON string.`;
+- Internal: 0-indexed (x: 0-18, y: 0-18). (0,0) is Top-Left.
+- Standard: A-T (skip I), 19-1.`;
 
   const userPrompt = `Current Game State:
 ${boardDescription}
@@ -379,21 +342,16 @@ export const analyzeMove = async (
   const humanCoord = toHumanCoordinate(move);
   const sgfCoord = toSGFCoordinate(move);
 
-  const systemPrompt = `Act as a world-class Go (Weiqi) Professional 9-dan teacher.
+  const systemPrompt = `Act as a Go (Weiqi) Professional 9-dan teacher.
 Analyze the last move played by ${player}.
-Precise Location Data:
-- Internal: x=${move.x}, y=${move.y}
-- SGF: [${sgfCoord}]
-- Standard: "${humanCoord}"
+Location: Internal(x=${move.x}, y=${move.y}) | SGF[${sgfCoord}] | "${humanCoord}"
 
 Board Visualization uses Standard Go coordinates (A-T, 19-1).
 Mapping: (0,0) is Top-Left (A19).
 
-CRITICAL: The "Occupied Coordinates" list provides the exact location of every stone. Use it to verify the visual board.
-
 Provide a deep, sophisticated analysis in Chinese (Simplified).
-IMPORTANT: When referring to the move in your text, explicitly use the Standard Coordinate "${humanCoord}".
-Return strict JSON matching the requested schema.`;
+When referring to the move, use Standard Coordinate "${humanCoord}".
+Return strict JSON matching the schema.`;
 
   const userPrompt = `Game Context:
 ${boardDescription}
