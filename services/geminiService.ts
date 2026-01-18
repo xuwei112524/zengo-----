@@ -354,9 +354,9 @@ export const getAIMove = async (
   config: AIConfig
 ): Promise<{ move: Coordinate | null, usage: number }> => {
   
-  // Select formatter based on provider
-  const isDeepSeek = config.provider === 'deepseek';
-  const boardDescription = isDeepSeek 
+  // Select formatter based on provider. Qwen also benefits from explicit stone lists.
+  const useExplicitFormat = config.provider === 'deepseek' || config.provider === 'qwen';
+  const boardDescription = useExplicitFormat 
     ? formatBoardDeepSeek(gameState.board, gameState.moveHistory)
     : formatBoardEnhanced(gameState.board, gameState.moveHistory);
 
@@ -461,9 +461,9 @@ export const analyzeMove = async (
   move: Coordinate,
   config: AIConfig
 ): Promise<{ analysis: MoveAnalysis, usage: number }> => {
-  // Select formatter based on provider
-  const isDeepSeek = config.provider === 'deepseek';
-  const boardDescription = isDeepSeek 
+  // Select formatter based on provider. Qwen also benefits from explicit stone lists.
+  const useExplicitFormat = config.provider === 'deepseek' || config.provider === 'qwen';
+  const boardDescription = useExplicitFormat 
     ? formatBoardDeepSeek(gameState.board, gameState.moveHistory)
     : formatBoardEnhanced(gameState.board, gameState.moveHistory);
 
