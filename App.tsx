@@ -75,7 +75,14 @@ const App: React.FC = () => {
     const savedConfig = localStorage.getItem('zenGo_aiConfig');
     if (savedConfig) {
       try {
-        setAiConfig(JSON.parse(savedConfig));
+        const parsed = JSON.parse(savedConfig);
+        // Migration: If provider is Gemini and model is an old version, upgrade it
+        if (parsed.provider === 'gemini') {
+          if (!parsed.modelName || parsed.modelName.includes('gemini-2')) {
+            parsed.modelName = 'gemini-3-flash-preview';
+          }
+        }
+        setAiConfig(parsed);
       } catch (e) {
         console.error("Failed to parse saved config", e);
       }

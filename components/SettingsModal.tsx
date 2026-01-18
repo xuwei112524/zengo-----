@@ -18,7 +18,6 @@ const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
 
 const GEMINI_MODELS = [
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (最新预览版)', description: '最快且最新的预览模型' },
-  { id: 'gemini-flash-lite-latest', name: 'Gemini Flash Lite', description: '极速响应，轻量级模型' },
 ];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentConfig, onSave }) => {
@@ -91,7 +90,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
       if (provider === 'gemini') {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
-        const testModel = modelName || 'gemini-3-flash-preview';
+        // Force test with the default model since selection is hidden
+        const testModel = 'gemini-3-flash-preview';
         await ai.models.generateContent({
           model: testModel,
           contents: 'Hi',
@@ -151,10 +151,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
     }
     localStorage.setItem('zenGo_apiKeys', JSON.stringify(newMap));
 
+    // Force Gemini to use the specific flash preview model, ignoring any stale state
+    const finalModelName = provider === 'gemini' ? 'gemini-3-flash-preview' : modelName;
+
     onSave({
       provider,
       apiKey,
-      modelName 
+      modelName: finalModelName
     });
     onClose();
   };
@@ -212,7 +215,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
             </div>
           </div>
 
-          {/* Model Selection (Gemini Only) */}
+          {/* Model Selection (Gemini Only) - Hidden as we default to Gemini 3 Flash */}
+          {/* 
           {provider === 'gemini' && (
             <div className="space-y-3 animate-slide-down">
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">选择 Gemini 模型</label>
@@ -238,6 +242,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
               </div>
             </div>
           )}
+          */}
 
           {/* API Key Input */}
           <div className="space-y-3">

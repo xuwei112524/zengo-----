@@ -11,7 +11,7 @@ ZenGo is a modern, AI-powered Go (Weiqi) web application designed for teaching a
 
 ## Key Features
 
-1.  **Multi-Provider AI Support:** Switch between Gemini, DeepSeek, Zhipu, and Qwen for move generation and game analysis.
+1.  **Multi-Provider AI Support:** Switch between Gemini 3 Flash Preview, DeepSeek, Zhipu, and Qwen for move generation and game analysis. Note: Gemini 2.0 Flash is no longer used in this project to ensure the latest capabilities.
 2.  **Interactive Board:** 19x19 Go board with visual influence (territory potential) indicators and smooth animations.
 3.  **Deep Analysis:** "Professional 9-dan" style commentary on every move, including score estimation, strategic context, and variations.
 4.  **Time Travel Analysis:** Review past moves with full board state restoration. Even if stones were captured later, viewing a past move shows the board exactly as it was.
