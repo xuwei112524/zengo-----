@@ -22,12 +22,15 @@ const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: str
 
 // --- Helper: Robust JSON Extractor ---
 function extractJSON(text: string): any {
+  // 0. Pre-processing: Remove <think>...</think> blocks common in reasoning models (like DeepSeek R1)
+  let processedText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
   try {
     // 1. Try direct parse
-    return JSON.parse(text);
+    return JSON.parse(processedText);
   } catch (e) {
     // 2. Try extracting from Markdown code blocks
-    const codeBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    const codeBlockMatch = processedText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     if (codeBlockMatch) {
       try {
         return JSON.parse(codeBlockMatch[1]);
@@ -37,7 +40,7 @@ function extractJSON(text: string): any {
     }
 
     // 3. Try finding the first brace pair (greedy)
-    const match = text.match(/\{[\s\S]*\}/);
+    const match = processedText.match(/\{[\s\S]*\}/);
     if (match) {
       try {
         return JSON.parse(match[0]);
@@ -47,11 +50,12 @@ function extractJSON(text: string): any {
     }
 
     // 4. Last resort: aggressive cleanup
-    const clean = text.replace(/```json|```/g, '').trim();
+    const clean = processedText.replace(/```json|```/g, '').trim();
     try {
       return JSON.parse(clean);
     } catch (e4) {
-      throw new Error("Failed to parse JSON response: " + text.substring(0, 100) + "...");
+      // Return null to indicate failure instead of throwing immediately, allowing caller to log
+      return null;
     }
   }
 }
@@ -76,36 +80,72 @@ async function callOpenAICompatible(
     'Authorization': `Bearer ${config.apiKey}`
   };
 
+  const model = config.modelName || providerConf.defaultModel;
+  
+  // DeepSeek Reasoner (R1) and some others do not support temperature when reasoning
+  const isReasoningModel = model.includes('reasoner') || model.includes('r1');
+
   const body: any = {
-    model: config.modelName || providerConf.defaultModel,
+    model: model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.2, // Lower temperature for more deterministic moves
     stream: false,
   };
 
-  if (providerConf.jsonMode) {
-    body.response_format = { type: "json_object" };
+  // Only apply temperature if NOT a reasoning model
+  if (!isReasoningModel) {
+    body.temperature = 0.2;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
-  });
+  // Helper to make the actual fetch
+  const makeRequest = async (useJsonMode: boolean) => {
+    const currentBody = { ...body };
+    if (useJsonMode && providerConf.jsonMode && !isReasoningModel) {
+       currentBody.response_format = { type: "json_object" };
+    } else {
+       delete currentBody.response_format;
+    }
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`${config.provider} API Error (${response.status}): ${errText}`);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(currentBody)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`${config.provider} API Error (${res.status}): ${errText}`);
+    }
+
+    return res.json();
+  };
+
+  try {
+    // Attempt 1: With default JSON mode setting
+    let json;
+    try {
+        json = await makeRequest(true);
+    } catch (e: any) {
+        // Attempt 2: If JSON mode failed (sometimes caused by strict format checks or specific model issues), try without it
+        // Only retry if it was likely a format/server issue, not auth
+        if (!e.message.includes("401") && !e.message.includes("403")) {
+            console.warn(`Attempt 1 failed (${e.message}), retrying without strict JSON mode...`);
+            json = await makeRequest(false);
+        } else {
+            throw e;
+        }
+    }
+
+    const content = json.choices[0].message.content;
+    const usage = json.usage?.total_tokens || 0;
+
+    return { text: content, usage };
+  } catch (error: any) {
+    console.error("API Call Failed:", error);
+    throw error;
   }
-
-  const json = await response.json();
-  const content = json.choices[0].message.content;
-  const usage = json.usage?.total_tokens || 0;
-
-  return { text: content, usage };
 }
 
 // --- Gemini Specific Logic ---
@@ -191,6 +231,23 @@ function toHumanCoordinate(c: Coordinate): string {
   return `${col}${row}`;
 }
 
+function fromHumanCoordinate(coordStr: string): Coordinate | null {
+  if (!coordStr || coordStr.length < 2) return null;
+  const letters = "ABCDEFGHJKLMNOPQRST";
+  const colChar = coordStr[0].toUpperCase();
+  const rowStr = coordStr.slice(1);
+  
+  const x = letters.indexOf(colChar);
+  const rowNum = parseInt(rowStr, 10);
+  
+  if (x === -1 || isNaN(rowNum)) return null;
+  
+  const y = 19 - rowNum;
+  if (x < 0 || x >= 19 || y < 0 || y >= 19) return null;
+  
+  return { x, y };
+}
+
 function generateSGF(history: Coordinate[], size: number): string {
   let sgf = `(;GM[1]FF[4]SZ[${size}]`;
   // Assuming Black always starts for simplicity in this history tracking
@@ -203,6 +260,57 @@ function generateSGF(history: Coordinate[], size: number): string {
 }
 
 // --- Helper: Enhanced Board Formatter ---
+function getStoneLocations(board: PlayerColor[][]): { black: string[], white: string[] } {
+  const size = board.length;
+  const black: string[] = [];
+  const white: string[] = [];
+  
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cell = board[y][x];
+      if (cell === PlayerColor.Black) {
+        black.push(toHumanCoordinate({x, y}));
+      } else if (cell === PlayerColor.White) {
+        white.push(toHumanCoordinate({x, y}));
+      }
+    }
+  }
+  return { black, white };
+}
+
+function formatBoardDeepSeek(board: PlayerColor[][], moveHistory: Coordinate[]): string {
+  const size = board.length;
+  const sgf = generateSGF(moveHistory, size);
+  const { black, white } = getStoneLocations(board);
+  
+  // Use the existing grid generator logic (inline or call existing if separated, but here we duplicate/reuse logic for clarity in the prompt structure)
+  const xLabels = "A B C D E F G H J K L M N O P Q R S T".split(' ');
+  let gridStr = "   " + xLabels.join(" ") + "\n";
+  for (let y = 0; y < size; y++) {
+    const yLabel = (size - y).toString().padStart(2, ' ');
+    gridStr += yLabel + " ";
+    for (let x = 0; x < size; x++) {
+       const cell = board[y][x];
+       const char = cell === PlayerColor.Black ? 'X' : (cell === PlayerColor.White ? 'O' : '.');
+       gridStr += char + " "; 
+    }
+    gridStr += yLabel + "\n";
+  }
+  gridStr += "   " + xLabels.join(" ") + "\n";
+
+  return `[DATA SECTION]
+1. Game History (SGF):
+${sgf}
+
+2. Explicit Stone Positions (Current State):
+- Black Stones (${black.length}): [${black.join(', ')}]
+- White Stones (${white.length}): [${white.join(', ')}]
+
+3. Visual Board (Reference):
+(Coordinates: X=A-T, Y=19-1. X: Black, O: White, .: Empty)
+${gridStr}`;
+}
+
 function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]): string {
   const size = board.length;
   const xLabels = "A B C D E F G H J K L M N O P Q R S T".split(' ');
@@ -246,7 +354,12 @@ export const getAIMove = async (
   config: AIConfig
 ): Promise<{ move: Coordinate | null, usage: number }> => {
   
-  const boardDescription = formatBoardEnhanced(gameState.board, gameState.moveHistory);
+  // Select formatter based on provider
+  const isDeepSeek = config.provider === 'deepseek';
+  const boardDescription = isDeepSeek 
+    ? formatBoardDeepSeek(gameState.board, gameState.moveHistory)
+    : formatBoardEnhanced(gameState.board, gameState.moveHistory);
+
   const size = gameState.boardSize;
   const color = gameState.currentPlayer === PlayerColor.Black ? 'Black' : 'White';
   
@@ -257,8 +370,10 @@ export const getAIMove = async (
     lastMoveInfo = `Internal(${lm.x},${lm.y}) | SGF[${toSGFCoordinate(lm)}] | Standard(${toHumanCoordinate(lm)})`;
   }
 
-  const forbiddenStr = invalidCandidates.length > 0 
-    ? `IMPORTANT: The following coordinates are INVALID (occupied or suicide), DO NOT PLAY HERE: ${JSON.stringify(invalidCandidates)}`
+  // Convert invalid candidates to human-readable strings for better AI comprehension
+  const forbiddenHuman = invalidCandidates.map(c => toHumanCoordinate(c));
+  const forbiddenStr = forbiddenHuman.length > 0 
+    ? `IMPORTANT: The following coordinates are INVALID (occupied or suicide), DO NOT PLAY HERE: ${JSON.stringify(forbiddenHuman)}`
     : '';
 
   const systemPrompt = `You are a professional Go (Weiqi) player (9-dan).
@@ -266,13 +381,16 @@ Board Size: ${size}x${size}.
 Your Color: ${color}.
 Game Rules: Chinese Rules (Komis 7.5).
 
-Task: Calculate the single best LEGAL next coordinate to win.
-Output: Strict JSON { "x": number, "y": number }.
-Example: { "x": 15, "y": 3 } (Q16).
+Task: Calculate the single best LEGAL next move.
+Output: Strict JSON { "move": "Q16" }.
 
 Coordinate System:
-- Internal: 0-indexed (x: 0-18, y: 0-18). (0,0) is Top-Left.
-- Standard: A-T (skip I), 19-1.`;
+- Standard: A-T (skip I), 19-1. (e.g., Q16, D4, K10)
+- (0,0) Internal is A19.
+
+IMPORTANT:
+- Output only standard coordinates (e.g. "D4").
+- Do NOT output internal x/y numbers.`;
 
   const userPrompt = `Current Game State:
 ${boardDescription}
@@ -281,7 +399,7 @@ The last move was at: ${lastMoveInfo}
 
 ${forbiddenStr}
 
-Return JSON {x, y} only.`;
+Return JSON { "move": "..." } only. Do not include any markdown formatting or explanations.`;
 
   let response: ServiceResponse;
 
@@ -291,10 +409,9 @@ Return JSON {x, y} only.`;
       const schema = {
         type: Type.OBJECT,
         properties: {
-          x: { type: Type.INTEGER },
-          y: { type: Type.INTEGER }
+          move: { type: Type.STRING }
         },
-        required: ['x', 'y']
+        required: ['move']
       };
       response = await callGemini(config, prompt, schema, true);
     } else {
@@ -303,10 +420,19 @@ Return JSON {x, y} only.`;
 
     const json = extractJSON(response.text);
     
-    if (json && typeof json.x === 'number' && typeof json.y === 'number') {
-      return { move: { x: json.x, y: json.y }, usage: response.usage };
+    // Parse the standard coordinate string back to internal x,y
+    if (json && typeof json.move === 'string') {
+      const parsed = fromHumanCoordinate(json.move);
+      if (parsed) {
+        return { move: parsed, usage: response.usage };
+      }
+      console.warn("AI returned invalid coordinate string:", json.move);
+    } else if (json && typeof json.x === 'number' && typeof json.y === 'number') {
+       // Fallback for legacy/gemini if it ignores instruction
+       return { move: { x: json.x, y: json.y }, usage: response.usage };
     }
-    console.warn("AI returned invalid JSON structure:", json);
+
+    console.warn("AI returned invalid JSON structure. Raw text:", response.text);
     return { move: null, usage: response.usage };
   } catch (e: any) {
     console.error(`AI Move Error (${config.provider}):`, e);
@@ -335,22 +461,32 @@ export const analyzeMove = async (
   move: Coordinate,
   config: AIConfig
 ): Promise<{ analysis: MoveAnalysis, usage: number }> => {
-  const boardDescription = formatBoardEnhanced(gameState.board, gameState.moveHistory);
+  // Select formatter based on provider
+  const isDeepSeek = config.provider === 'deepseek';
+  const boardDescription = isDeepSeek 
+    ? formatBoardDeepSeek(gameState.board, gameState.moveHistory)
+    : formatBoardEnhanced(gameState.board, gameState.moveHistory);
+
   const player = gameState.currentPlayer === PlayerColor.Black ? 'White' : 'Black';
 
   // Explicit coordinate data for the move being analyzed
   const humanCoord = toHumanCoordinate(move);
   const sgfCoord = toSGFCoordinate(move);
 
-  const systemPrompt = `Act as a Go (Weiqi) Professional 9-dan teacher.
+  const systemPrompt = `Act as a Go (Weiqi) Professional 9-dan teacher (e.g., Ke Jie style).
 Analyze the last move played by ${player}.
 Location: Internal(x=${move.x}, y=${move.y}) | SGF[${sgfCoord}] | "${humanCoord}"
 
 Board Visualization uses Standard Go coordinates (A-T, 19-1).
 Mapping: (0,0) is Top-Left (A19).
 
-Provide a deep, sophisticated analysis in Chinese (Simplified).
-When referring to the move, use Standard Coordinate "${humanCoord}".
+CRITICAL INSTRUCTION:
+- Be STRICT and OBJECTIVE. Do not be overly polite.
+- If a move is slow, inefficient, or a mistake, label it as "缓手" or "恶手" or "败着".
+- Compare the move with the AI's optimal move. If it loses points/tempo, penalize the score.
+- Provide deep, sophisticated analysis in Chinese (Simplified).
+- When referring to the move, use Standard Coordinate "${humanCoord}".
+
 Return strict JSON matching the schema.`;
 
   const userPrompt = `Game Context:
@@ -358,13 +494,15 @@ ${boardDescription}
 
 Output JSON fields:
 1. evaluation: "神之一手" | "好棋" | "普通" | "缓手" | "恶手" | "败着"
-2. score: 0-100
-3. title: 4-character idiom
-4. detailedAnalysis: string
-5. strategicContext: string
+2. score: 0-100 (Score the move quality: <50=Mistake, 50-70=Normal, >80=Good, >95=Divine)
+3. title: 4-character idiom (e.g. "大局为重", "痛失良机")
+4. detailedAnalysis: string (Explain WHY it is good/bad based on shape, influence, and territory)
+5. strategicContext: string (Current board situation: Leading/Trailing/Complicated)
 6. josekiOrProverbs: string[]
-7. territoryChange: number
-8. variations: array of {move: {x,y}, explanation, score}`;
+7. territoryChange: number (Estimated point loss/gain relative to optimal play)
+8. variations: array of {move: {x,y}, explanation, score} (Suggest better moves if this one was bad)
+
+IMPORTANT: Return ONLY the raw JSON string. No Markdown blocks.`;
 
   let response: ServiceResponse;
 
@@ -402,19 +540,24 @@ Output JSON fields:
        response = await callWithRetry(() => callOpenAICompatible(config, systemPrompt, userPrompt));
     }
 
-    const result = extractJSON(response.text) as MoveAnalysis;
+    const result = extractJSON(response.text);
     
     // Safety defaults
     const safeAnalysis: MoveAnalysis = {
-      evaluation: result.evaluation || '普通',
-      score: result.score || 70,
-      title: result.title || '...',
-      detailedAnalysis: result.detailedAnalysis || '无法解析详细分析',
-      strategicContext: result.strategicContext || '',
-      josekiOrProverbs: result.josekiOrProverbs || [],
-      territoryChange: result.territoryChange || 0,
-      variations: result.variations || []
+      evaluation: result?.evaluation || '普通',
+      score: result?.score || 70,
+      title: result?.title || '...',
+      detailedAnalysis: result?.detailedAnalysis || '无法解析详细分析 (Raw text logged)',
+      strategicContext: result?.strategicContext || '',
+      josekiOrProverbs: result?.josekiOrProverbs || [],
+      territoryChange: result?.territoryChange || 0,
+      variations: result?.variations || []
     };
+
+    if (!result) {
+        console.warn("Analysis JSON parse failed. Raw text:", response.text);
+    }
+
     return { analysis: safeAnalysis, usage: response.usage };
 
   } catch (e) {
