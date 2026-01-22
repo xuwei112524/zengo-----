@@ -260,6 +260,30 @@ function generateSGF(history: Coordinate[], size: number): string {
 }
 
 // --- Helper: Enhanced Board Formatter ---
+function getQuadrantDescription(x: number, y: number, size: number): string {
+  const center = (size - 1) / 2;
+  const isLeft = x < center;
+  const isRight = x > center;
+  const isTop = y < center;    // y=0 is Top (Row 19)
+  const isBottom = y > center; // y=18 is Bottom (Row 1)
+
+  let v = "";
+  if (isTop) v = "Top";
+  else if (isBottom) v = "Bottom";
+  else v = "Center";
+
+  let h = "";
+  if (isLeft) h = "Left";
+  else if (isRight) h = "Right";
+  else h = v === "Center" ? "" : "Center"; // Center-Center is just Center
+
+  if (v === "Center" && h === "") return "Center";
+  if (v === "Center") return h; // e.g. Left edge center? usually just Left side
+  if (h === "Center") return v;
+  
+  return `${v}-${h}`;
+}
+
 function getStoneLocations(board: PlayerColor[][]): { black: string[], white: string[] } {
   const size = board.length;
   const black: string[] = [];
@@ -268,10 +292,16 @@ function getStoneLocations(board: PlayerColor[][]): { black: string[], white: st
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const cell = board[y][x];
-      if (cell === PlayerColor.Black) {
-        black.push(toHumanCoordinate({x, y}));
-      } else if (cell === PlayerColor.White) {
-        white.push(toHumanCoordinate({x, y}));
+      if (cell !== PlayerColor.Empty) {
+        const coord = toHumanCoordinate({x, y});
+        const quad = getQuadrantDescription(x, y, size);
+        const desc = `${coord} (${quad})`;
+        
+        if (cell === PlayerColor.Black) {
+          black.push(desc);
+        } else {
+          white.push(desc);
+        }
       }
     }
   }
@@ -283,40 +313,48 @@ function formatBoardDeepSeek(board: PlayerColor[][], moveHistory: Coordinate[]):
   const sgf = generateSGF(moveHistory, size);
   const { black, white } = getStoneLocations(board);
   
-  // Use the existing grid generator logic (inline or call existing if separated, but here we duplicate/reuse logic for clarity in the prompt structure)
+  // Use the existing grid generator logic
   const xLabels = "A B C D E F G H J K L M N O P Q R S T".split(' ');
-  let gridStr = "   " + xLabels.join(" ") + "\n";
+  let gridStr = "   " + xLabels.join(" ") + "\n"; // Clean header
+  gridStr += "   -------------------------------------\n";
+
   for (let y = 0; y < size; y++) {
     const yLabel = (size - y).toString().padStart(2, ' ');
-    gridStr += yLabel + " ";
+    // Y-axis label (Left)
+    gridStr += yLabel + "|";
+    
     for (let x = 0; x < size; x++) {
        const cell = board[y][x];
        const char = cell === PlayerColor.Black ? 'X' : (cell === PlayerColor.White ? 'O' : '.');
        gridStr += char + " "; 
     }
-    gridStr += yLabel + "\n";
+    // Y-axis label (Right) for readability
+    gridStr += "|" + yLabel + "\n";
   }
+  gridStr += "   -------------------------------------\n";
   gridStr += "   " + xLabels.join(" ") + "\n";
 
   return `[DATA SECTION]
 1. Game History (SGF):
 ${sgf}
 
-2. Explicit Stone Positions (Current State):
+2. Explicit Stone Positions (with Quadrants):
 - Black Stones (${black.length}): [${black.join(', ')}]
 - White Stones (${white.length}): [${white.join(', ')}]
 
 3. Visual Board (Reference):
-(Coordinates: X=A-T, Y=19-1. X: Black, O: White, .: Empty)
+(Coordinates: X=A-T, Y=19-1. Top is Row 19. Bottom is Row 1. Left is A. Right is T)
 ${gridStr}`;
 }
 
 function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]): string {
   const size = board.length;
   const xLabels = "A B C D E F G H J K L M N O P Q R S T".split(' ');
+  const { black, white } = getStoneLocations(board);
   
   // 1. ASCII Visual Grid with Coordinates
-  let gridStr = "   " + xLabels.join(" ") + "\n"; // Header padding + X Labels
+  let gridStr = "   (Left) " + xLabels.join(" ") + " (Right)\n"; // Header padding + X Labels
+  gridStr += "         (Top 19)\n";
 
   for (let y = 0; y < size; y++) {
     const yLabel = (size - y).toString().padStart(2, ' ');
@@ -332,14 +370,19 @@ function formatBoardEnhanced(board: PlayerColor[][], moveHistory: Coordinate[]):
     // Y-axis label (Right) for readability
     gridStr += yLabel + "\n";
   }
+  gridStr += "         (Bottom 1)\n";
   // Footer X Labels
-  gridStr += "   " + xLabels.join(" ") + "\n";
+  gridStr += "   (Left) " + xLabels.join(" ") + " (Right)\n";
 
   // 2. SGF History
   const sgf = generateSGF(moveHistory, size);
 
   return `Game History (SGF):
 ${sgf}
+
+Explicit Stone Positions (with Quadrants):
+- Black Stones (${black.length}): [${black.join(', ')}]
+- White Stones (${white.length}): [${white.join(', ')}]
 
 Visual Board (For spatial context):
 (Coordinates: X=A-T, Y=19-1. X: Black, O: White, .: Empty)
@@ -387,6 +430,13 @@ Output: Strict JSON { "move": "Q16" }.
 Coordinate System:
 - Standard: A-T (skip I), 19-1. (e.g., Q16, D4, K10)
 - (0,0) Internal is A19.
+
+VISUAL ANCHORS (Use these to orient yourself):
+- Top-Left: A19
+- Top-Right: T19
+- Bottom-Left: A1
+- Bottom-Right: T1
+- Direction: Row 19 is TOP. Row 1 is BOTTOM. Column A is LEFT. Column T is RIGHT.
 
 IMPORTANT:
 - Output only standard coordinates (e.g. "D4").
@@ -473,19 +523,30 @@ export const analyzeMove = async (
   const humanCoord = toHumanCoordinate(move);
   const sgfCoord = toSGFCoordinate(move);
 
-  const systemPrompt = `Act as a Go (Weiqi) Professional 9-dan teacher (e.g., Ke Jie style).
+  const systemPrompt = `Act as a gentle, wise, and encouraging Go (Weiqi) teacher (9-dan professional level).
 Analyze the last move played by ${player}.
 Location: Internal(x=${move.x}, y=${move.y}) | SGF[${sgfCoord}] | "${humanCoord}"
 
 Board Visualization uses Standard Go coordinates (A-T, 19-1).
 Mapping: (0,0) is Top-Left (A19).
 
-CRITICAL INSTRUCTION:
-- Be STRICT and OBJECTIVE. Do not be overly polite.
-- If a move is slow, inefficient, or a mistake, label it as "缓手" or "恶手" or "败着".
-- Compare the move with the AI's optimal move. If it loses points/tempo, penalize the score.
-- Provide deep, sophisticated analysis in Chinese (Simplified).
-- When referring to the move, use Standard Coordinate "${humanCoord}".
+VISUAL ANCHORS:
+- Top-Left: A19
+- Top-Right: T19
+- Bottom-Left: A1
+- Bottom-Right: T1
+- Direction: Row 19 is TOP. Row 1 is BOTTOM. Column A is LEFT. Column T is RIGHT.
+
+INSTRUCTION:
+1.  **Tone**: Warm, encouraging, and constructive. NEVER use harsh or insulting language.
+    *   Avoid: "恶手" (Evil/Bad move), "败着" (Losing move), "愚蠢" (Stupid).
+    *   Prefer: "缓手" (Slow), "欠妥" (Questionable), "值得商榷" (Debatable), "遗憾" (Pity).
+2.  **Comparison**: Explicitly compare the board state *before* and *after* this move.
+    *   Did the move fix a weakness?
+    *   Did it create a new attack?
+    *   How did the win rate/territory balance shift?
+3.  **Teaching**: Explain the *logic* (Haengma/Shape). Focus on the future potential.
+4.  **Language**: Simplified Chinese (简体中文).
 
 Return strict JSON matching the schema.`;
 
@@ -493,10 +554,10 @@ Return strict JSON matching the schema.`;
 ${boardDescription}
 
 Output JSON fields:
-1. evaluation: "神之一手" | "好棋" | "普通" | "缓手" | "恶手" | "败着"
+1. evaluation: "神之一手" | "好棋" | "普通" | "缓手" | "欠妥" | "遗憾"
 2. score: 0-100 (Score the move quality: <50=Mistake, 50-70=Normal, >80=Good, >95=Divine)
-3. title: 4-character idiom (e.g. "大局为重", "痛失良机")
-4. detailedAnalysis: string (Explain WHY it is good/bad based on shape, influence, and territory)
+3. title: 4-character idiom (e.g. "大局为重", "稳步前行", "错失良机")
+4. detailedAnalysis: string (CRITICAL: Compare the situation BEFORE and AFTER the move. What changed? Predict next moves.)
 5. strategicContext: string (Current board situation: Leading/Trailing/Complicated)
 6. josekiOrProverbs: string[]
 7. territoryChange: number (Estimated point loss/gain relative to optimal play)
@@ -512,7 +573,7 @@ IMPORTANT: Return ONLY the raw JSON string. No Markdown blocks.`;
       const schema = {
         type: Type.OBJECT,
         properties: {
-          evaluation: { type: Type.STRING, enum: ['神之一手', '好棋', '普通', '缓手', '恶手', '败着'] },
+          evaluation: { type: Type.STRING, enum: ['神之一手', '好棋', '普通', '缓手', '欠妥', '遗憾'] },
           score: { type: Type.INTEGER },
           title: { type: Type.STRING },
           detailedAnalysis: { type: Type.STRING },
