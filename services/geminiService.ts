@@ -295,7 +295,8 @@ function getStoneLocations(board: PlayerColor[][]): { black: string[], white: st
       if (cell !== PlayerColor.Empty) {
         const coord = toHumanCoordinate({x, y});
         const quad = getQuadrantDescription(x, y, size);
-        const desc = `${coord} (${quad})`;
+        // Explicitly map: Standard Q16 <-> Internal (15, 3) to force AI to learn the map
+        const desc = `${coord} {x:${x}, y:${y}} (${quad})`;
         
         if (cell === PlayerColor.Black) {
           black.push(desc);
@@ -320,7 +321,7 @@ function formatBoardDeepSeek(board: PlayerColor[][], moveHistory: Coordinate[]):
 
   for (let y = 0; y < size; y++) {
     const yLabel = (size - y).toString().padStart(2, ' ');
-    // Y-axis label (Left)
+    // Y-axis label (Left: Standard 19-1)
     gridStr += yLabel + "|";
     
     for (let x = 0; x < size; x++) {
@@ -328,8 +329,8 @@ function formatBoardDeepSeek(board: PlayerColor[][], moveHistory: Coordinate[]):
        const char = cell === PlayerColor.Black ? 'X' : (cell === PlayerColor.White ? 'O' : '.');
        gridStr += char + " "; 
     }
-    // Y-axis label (Right) for readability
-    gridStr += "|" + yLabel + "\n";
+    // Y-axis label (Right: Internal 0-18) -> CRITICAL for AI debugging
+    gridStr += `| y:${y}\n`;
   }
   gridStr += "   -------------------------------------\n";
   gridStr += "   " + xLabels.join(" ") + "\n";
@@ -338,12 +339,13 @@ function formatBoardDeepSeek(board: PlayerColor[][], moveHistory: Coordinate[]):
 1. Game History (SGF):
 ${sgf}
 
-2. Explicit Stone Positions (with Quadrants):
+2. Explicit Stone Positions (Format: "Standard {Internal} (Quadrant)"):
 - Black Stones (${black.length}): [${black.join(', ')}]
 - White Stones (${white.length}): [${white.join(', ')}]
 
 3. Visual Board (Reference):
-(Coordinates: X=A-T, Y=19-1. Top is Row 19. Bottom is Row 1. Left is A. Right is T)
+(Left: Standard Row 19-1. Right: Internal y 0-18)
+(Top Row is Standard 19 / Internal y=0)
 ${gridStr}`;
 }
 
@@ -554,9 +556,15 @@ Return strict JSON matching the schema.`;
 ${boardDescription}
 
 Output JSON fields:
-1. evaluation: "神之一手" | "好棋" | "普通" | "缓手" | "欠妥" | "遗憾"
-2. score: 0-100 (Score the move quality: <50=Mistake, 50-70=Normal, >80=Good, >95=Divine)
-3. title: 4-character idiom (e.g. "大局为重", "稳步前行", "错失良机")
+1. evaluation: Choose one based on Score:
+   - "神之一手" (Score > 95): Game-defining brilliance.
+   - "好棋" (Score 80-95): Strong, active, positive move.
+   - "普通" (Score 60-79): Standard, acceptable move.
+   - "缓手" (Score 40-59): Passive, small, or low efficiency (but not a blunder).
+   - "欠妥" (Score 20-39): Bad direction, shape defect, or loss of points.
+   - "遗憾" (Score < 20): Severe mistake or blunder.
+2. score: 0-100 (Be decisive! Do not default to 50-60.)
+3. title: 4-character idiom (e.g. "大局为重", "稳步前行", "错失良机", "一石二鸟")
 4. detailedAnalysis: string (CRITICAL: Compare the situation BEFORE and AFTER the move. What changed? Predict next moves.)
 5. strategicContext: string (Current board situation: Leading/Trailing/Complicated)
 6. josekiOrProverbs: string[]
