@@ -3,8 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MoveAnalysis, PlayerColor, AnalysisHistoryItem } from '../types';
 import {
   Brain, TrendingUp, TrendingDown, BookOpen, Compass, Target,
-  History, ChevronUp, ChevronDown, CircleDot, ChevronLeft, ChevronRight
+  History, ChevronUp, ChevronDown, CircleDot, ChevronLeft, ChevronRight, Download
 } from 'lucide-react';
+import { downloadGameRecord } from '../services/exportService';
 
 interface AnalysisPanelProps {
   history: AnalysisHistoryItem[];
@@ -322,16 +323,27 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       <div className={`border-t border-stone-200 bg-white transition-all duration-300 ease-in-out flex flex-col ${isHistoryOpen ? 'h-64' : 'h-12'}`}>
          
          {/* Toggle Bar */}
-         <button 
-           onClick={() => setIsHistoryOpen(!isHistoryOpen)}
-           className="h-12 w-full px-6 flex items-center justify-between hover:bg-stone-50 transition-colors shrink-0"
-         >
-           <div className="flex items-center gap-2 text-stone-600">
-             <History size={16} />
-             <span className="text-xs font-bold uppercase tracking-wider">历史记录 ({history.length})</span>
-           </div>
-           {isHistoryOpen ? <ChevronDown size={16} className="text-stone-400" /> : <ChevronUp size={16} className="text-stone-400" />}
-         </button>
+         <div className="flex items-center h-12 w-full pr-4 bg-white hover:bg-stone-50 transition-colors shrink-0">
+            <button 
+              onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+              className="h-full flex-1 px-6 flex items-center gap-2 text-stone-600"
+            >
+              <History size={16} />
+              <span className="text-xs font-bold uppercase tracking-wider">历史记录 ({history.length})</span>
+              {isHistoryOpen ? <ChevronDown size={16} className="text-stone-400 ml-2" /> : <ChevronUp size={16} className="text-stone-400 ml-2" />}
+            </button>
+            
+            <button
+               onClick={(e) => {
+                 e.stopPropagation();
+                 downloadGameRecord(history);
+               }}
+               className="p-2 text-stone-400 hover:text-stone-800 hover:bg-stone-200 rounded-full transition-all"
+               title="下载棋谱及分析 (TXT)"
+            >
+               <Download size={16} />
+            </button>
+         </div>
 
          {/* List */}
          {isHistoryOpen && (
