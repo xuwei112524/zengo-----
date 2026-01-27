@@ -17,6 +17,11 @@ const PROVIDER_CONFIGS: Record<AIProvider, { baseURL?: string, defaultModel: str
     baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
     defaultModel: 'qwen-plus',
     jsonMode: true
+  },
+  aihubmix: {
+    baseURL: 'https://api.aihubmix.com/v1/chat/completions',
+    defaultModel: 'gemini-3-flash-preview-free',
+    jsonMode: true
   }
 };
 

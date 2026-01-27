@@ -14,6 +14,7 @@ const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
   { id: 'gemini', name: 'Google Gemini', description: 'Google 强大的生成式 AI' },
   { id: 'deepseek', name: 'DeepSeek', description: 'DeepSeek V3 (高性价比)' },
   { id: 'qwen', name: 'Qwen (通义千问)', description: 'Qwen-Plus/Max (综合能力强)' },
+  { id: 'aihubmix', name: 'AIHubMix', description: 'Gemini-3-Flash (APIHubMix 代理)' },
 ];
 
 const GEMINI_MODELS = [
@@ -36,13 +37,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
       setModelName(currentConfig.modelName || (currentConfig.provider === 'gemini' ? 'gemini-3-flash-preview' : undefined));
       // Try to load saved keys map from localStorage
       const savedKeys = localStorage.getItem('zenGo_apiKeys');
-      if (savedKeys) {
-        const parsed = JSON.parse(savedKeys);
-        setKeysMap(parsed);
-        setApiKey(parsed[currentConfig.provider] || currentConfig.apiKey);
-      } else {
-        setApiKey(currentConfig.apiKey);
+      let parsed = savedKeys ? JSON.parse(savedKeys) : {};
+      
+      // Auto-fill AIHubMix key if provided by user and not already in storage
+      if (!parsed.aihubmix) {
+        parsed.aihubmix = 'sk-VbPXHIQiGqfJkkpVDd8c991c95Bf42C88cEeC8B52fC3B453';
+        localStorage.setItem('zenGo_apiKeys', JSON.stringify(parsed));
       }
+
+      setKeysMap(parsed);
+      setApiKey(parsed[currentConfig.provider] || currentConfig.apiKey);
     }
   }, [isOpen, currentConfig]);
 
@@ -110,6 +114,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentC
         qwen: {
           baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
           model: 'qwen-plus'
+        },
+        aihubmix: {
+          baseURL: 'https://api.aihubmix.com/v1/chat/completions',
+          model: 'gemini-3-flash-preview-free'
         }
       };
 
